@@ -1,7 +1,7 @@
 # .github/workflows/update-apt-repo.yaml
-# PHIÊN BẢN SIÊU TỐI GIẢN ĐỂ DEBUG LỖI CÚ PHÁP
+# PHIÊN BẢN CUỐI CÙNG - ĐÃ SỬA LỖI PERMISSION
 
-name: Build and Deploy APT Repo (Debug)
+name: Build and Deploy APT Repo
 
 on:
   push:
@@ -11,6 +11,11 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    
+    # <<< THÊM KHỐI NÀY VÀO ĐỂ CẤP QUYỀN GHI CHO WORKFLOW
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout main branch
         uses: actions/checkout@v4
@@ -28,9 +33,13 @@ jobs:
       - name: Create directory structure
         run: mkdir -p public/debs
 
-      - name: Copy essential files
+      - name: Copy static files and debs
         run: |
-          cp -r debs/* public/debs/
+          # Dùng if để tránh lỗi nếu không có file .deb nào
+          if [ -n "$(ls -A debs/*.deb 2>/dev/null)" ]; then
+            cp -r debs/* public/debs/
+          fi
+          cp style.css public/
           echo "${{ secrets.PUBLIC_KEY }}" > public/KEY.gpg
 
       - name: Build APT Repository
@@ -43,31 +52,36 @@ jobs:
           gpg -abs -u "${{ steps.import_gpg.outputs.email }}" -o Release.gpg Release
           cd ..
       
-      # --- BƯỚC TẠO HTML ĐÃ ĐƯỢC ĐƠN GIẢN HÓA TỐI ĐA ---
-      - name: Generate simplified index.html (Debug)
+      - name: Generate professional index.html
         run: |
-          echo "--- Starting simplified HTML generation ---"
-          # Tạo file và ghi phần đầu
-          echo '<!DOCTYPE html><html><head><title>Ninh Repo - Package List</title></head><body>' > public/index.html
-          echo '<h1>List of .deb Files Found</h1>' >> public/index.html
-          
-          # Vòng lặp đơn giản để kiểm tra xem file có được tìm thấy không
-          if [ -d "debs" ]; then
-            find debs -type f -name "*.deb" | while read -r deb; do
-              # Chỉ in tên file để kiểm tra vòng lặp có chạy không
-              echo "<p>Found file: ${deb}</p>" >> public/index.html
-            done
-          else
-            echo '<p>ERROR: Directory "debs" not found!</p>' >> public/index.html
-          fi
-          
-          # Ghi phần cuối
-          echo '</body></html>' >> public/index.html
-          echo "--- Simplified HTML generation complete. ---"
+          cat <<EOF > public/index.html
+          <!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Repo của ${{ github.repository_owner }}</title><link rel="stylesheet" href="style.css"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head><body><div class="container"><header><h1>${{ github.event.repository.name }}</h1><p>Kho lưu trữ APT được host trên GitHub Pages.</p></header><main><section class="installation"><h2>Hướng dẫn cài đặt</h2><pre><code># Thêm GPG Key
+          curl -sS --compressed "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/KEY.gpg" | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg >/dev/null
+          # Thêm Repo
+          echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg] https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/ /" | sudo tee /etc/apt/sources.list.d/${{ github.event.repository.name }}.list
+          # Cập nhật
+          sudo apt update</code></pre></section><section class="packages"><h2>Danh sách các gói</h2><div class="package-list">
+          EOF
+
+          # Vòng lặp an toàn hơn
+          find debs -name "*.deb" -print0 | while IFS= read -r -d '' deb; do
+            PACKAGE_NAME=\$(dpkg-deb -f "\$deb" Package)
+            VERSION=\$(dpkg-deb -f "\$deb" Version)
+            DESCRIPTION=\$(dpkg-deb -f "\$deb" Description | head -n 1)
+            cat <<EOF >> public/index.html
+          <div class="package-item"><div class="package-info"><h3>\$PACKAGE_NAME</h3><p style="color: #aaa; font-size: 0.9em;">Phiên bản: \$VERSION</p><p>\$DESCRIPTION</p></div></div>
+          EOF
+          done
+
+          cat <<EOF >> public/index.html
+          </div></section></main><footer><p>&copy; $(date +%Y) ${{ github.repository_owner }}. Hosted on GitHub Pages.</p></footer></div></body></html>
+          EOF
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
+          # Thay đổi này quan trọng: Dùng GITHUB_TOKEN mặc định thay vì PAT
+          # vì chúng ta đã cấp quyền 'contents: write' ở trên
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
           user_name: 'github-actions[bot]'
