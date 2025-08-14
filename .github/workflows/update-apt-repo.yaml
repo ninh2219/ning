@@ -1,0 +1,52 @@
+name: Update APT Repo on GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'debs/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y apt-utils gzip dpkg-dev
+
+    - name: List deb files for index.html
+      run: |
+        echo "<html><body><h1>Danh sách Packages Debian</h1><ul>" > index.html
+        for deb in debs/*.deb; do
+          if [ -f "$deb" ]; then
+            echo "<li><a href=\"https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/debs/$(basename $deb)\">$(basename $deb)</a></li>" >> index.html
+          fi
+        done
+        echo "</ul></body></html>" >> index.html
+
+    - name: Setup APT Repo
+      uses: jrandiny/apt-repo-action@v1
+      with:
+        github_token: ${{ secrets.PAT }}
+        arch: |
+          amd64
+          arm64  # Thêm arch nếu cần
+        version: |
+          noble
+          jammy  # Ubuntu versions (codename)
+        file: debs/*.deb  # Hoặc chỉ định file cụ thể
+        file_target_version: noble  # Phù hợp với version của deb
+        public_key: ${{ secrets.PUBLIC_KEY }}
+        private_key: ${{ secrets.PRIVATE_KEY }}
+        key_passphrase: ${{ secrets.KEY_PASSPHRASE }}
+        page_branch: gh-pages
+        repo_folder: repo  # Thư mục trên Pages: repo/dists, repo/pool
+
+    - name: Commit index.html to main (optional)
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add index.html
+        git commit -m "Cập nhật index.html" || echo "Không có thay đổi"
+        git push
