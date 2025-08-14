@@ -1,5 +1,5 @@
 # .github/workflows/update-apt-repo.yaml
-# FILE ĐÃ ĐƯỢC SỬA LẠI HOÀN CHỈNH
+# FILE ĐÃ ĐƯỢC SỬA LẠI VÀ THÊM BƯỚC DEBUG
 
 name: Update APT Repo on GitHub Pages
 
@@ -18,6 +18,11 @@ jobs:
       # Bước 1: Checkout mã nguồn từ nhánh 'main'
       - name: Checkout main branch
         uses: actions/checkout@v4
+
+      # <<< BƯỚC DEBUG ĐƯỢC THÊM VÀO ĐÂY
+      # Bước này sẽ liệt kê tất cả các file và thư mục để kiểm tra
+      - name: Debug - List all files
+        run: ls -R
 
       # Bước 2: Cài đặt các công cụ cần thiết
       - name: Install dependencies
