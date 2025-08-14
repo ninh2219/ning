@@ -1,5 +1,5 @@
 # .github/workflows/update-apt-repo.yaml
-# PHIÊN BẢN NÂNG CẤP - HỖ TRỢ CYDIA
+# PHIÊN BẢN CUỐI CÙNG - ĐÃ SỬA LỖI ĐƯỜNG DẪN QUÉT FILE .DEB
 
 name: Build and Deploy APT Repo
 
@@ -28,38 +28,31 @@ jobs:
           gpg_private_key: ${{ secrets.PRIVATE_KEY }}
           passphrase: ${{ secrets.KEY_PASSPHRASE }}
 
-      - name: Create directory structure
-        run: mkdir -p public/debs
+      - name: Create directory structure for deployment
+        run: mkdir -p public
 
-      - name: Copy essential files
+      - name: Copy essential files to public directory
         run: |
-          if [ -n "$(ls -A debs/*.deb 2>/dev/null)" ]; then
-            cp -r debs/* public/debs/
-          fi
-          # Thêm logic để copy file IPA nếu có
-          if [ -d "ipas" ]; then
-            mkdir -p public/ipas
-            cp -r ipas/* public/ipas/
-          fi
-          if [ -f "style.css" ]; then
-            cp style.css public/
-          fi
-          # --- THÊM DÒNG NÀY ĐỂ COPY ICON ---
-          if [ -f "CydiaIcon.png" ]; then
-            cp CydiaIcon.png public/
-          fi
+          # Copy các thư mục chứa gói tin
+          if [ -d "debs" ]; then cp -r debs public/; fi
+          if [ -d "ipas" ]; then cp -r ipas public/; fi
+          
+          # Copy các file tĩnh khác
+          if [ -f "style.css" ]; then cp style.css public/; fi
+          if [ -f "CydiaIcon.png" ]; then cp CydiaIcon.png public/; fi
           echo "${{ secrets.PUBLIC_KEY }}" > public/KEY.gpg
 
-      # --- BƯỚC NÀY ĐÃ ĐƯỢC NÂNG CẤP ---
+      # --- BƯỚC NÀY ĐÃ ĐƯỢC SỬA LẠI ---
       - name: Build APT Repository for Cydia
         run: |
           cd public
           
-          # Tạo file Packages
-          dpkg-scanpackages --multiversion . > Packages
+          # Quét các gói trong thư mục 'debs' và ghi kết quả vào file 'Packages'
+          echo "Scanning .deb files from 'debs' directory..."
+          dpkg-scanpackages --multiversion debs /dev/null > Packages
           gzip -c9 Packages > Packages.gz
           
-          # Tạo file cấu hình tạm thời cho file Release
+          # Tạo file cấu hình cho Release
           cat <<EOF > apt.conf
           APT::FTPArchive::Release {
             Origin "Ninh's Repo";
@@ -73,7 +66,8 @@ jobs:
           };
           EOF
           
-          # Tạo file Release sử dụng file cấu hình ở trên
+          # Tạo file Release từ file Packages đã có
+          echo "Generating Release file..."
           apt-ftparchive -c apt.conf release . > Release
           
           # Ký file Release
