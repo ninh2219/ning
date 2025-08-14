@@ -50,3 +50,9 @@ jobs:
         git add index.html
         git commit -m "Cập nhật index.html" || echo "Không có thay đổi"
         git push
+# Thêm bước này vào file .yml của bạn
+      - name: Generate Packages HTML Page
+        id: generate_html
+        run: |
+          # Chạy script Python để tạo file packages.html
+          python scripts/generate_html.py
