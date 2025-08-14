@@ -1,4 +1,4 @@
-z#!/bin/bash
+#!/bin/bash
 # generate-index.sh
 
 # Dừng lại ngay nếu có lỗi
