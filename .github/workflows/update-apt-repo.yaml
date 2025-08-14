@@ -1,11 +1,12 @@
 # .github/workflows/update-apt-repo.yaml
-# Phiên bản cuối cùng để debug
+# PHIÊN BẢN HOÀN CHỈNH - ĐÃ SỬA LỖI PHIÊN BẢN ACTION
 
 name: Build and Deploy APT Repo
 
 on:
   push:
     branches: [ main ]
+  # Cho phép chạy thủ công từ tab Actions
   workflow_dispatch:
 
 jobs:
@@ -15,10 +16,9 @@ jobs:
       - name: Checkout main branch
         uses: actions/checkout@v4
         with:
-          # Lấy toàn bộ lịch sử git để có thể commit ngược lại
           fetch-depth: 0
 
-      - name: Debug - List all files at start
+      - name: Debug - List all files
         run: ls -R
 
       - name: Install dependencies
@@ -27,12 +27,10 @@ jobs:
       - name: Generate professional index.html
         run: |
           echo "--- Starting index.html generation ---"
-          # Kiểm tra xem thư mục debs có tồn tại không
           if [ ! -d "debs" ] || [ -z "$(ls -A debs/*.deb 2>/dev/null)" ]; then
             echo "Warning: 'debs' directory is empty or does not exist. No packages to list."
           fi
           
-          # Bắt đầu file HTML
           cat <<EOF > index.html
           <!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Repo của ${{ github.repository_owner }}</title><link rel="stylesheet" href="style.css"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head><body><div class="container"><header><h1>${{ github.event.repository.name }}</h1><p>Kho lưu trữ APT được host trên GitHub Pages.</p></header><main><section class="installation"><h2>Hướng dẫn cài đặt</h2><pre><code># Thêm GPG Key
 curl -sS --compressed "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/KEY.gpg" | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg >/dev/null
@@ -42,7 +40,6 @@ echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/${{ github.event.reposito
 sudo apt update</code></pre></section><section class="packages"><h2>Danh sách các gói</h2><div class="package-list">
           EOF
 
-          # Lặp qua từng file .deb
           for deb in debs/*.deb; do
             if [ -f "\$deb" ]; then
               echo "Processing \$deb..."
@@ -55,14 +52,13 @@ sudo apt update</code></pre></section><section class="packages"><h2>Danh sách c
             fi
           done
 
-          # Đóng file HTML
           cat <<EOF >> index.html
 </div></section></main><footer><p>&copy; $(date +%Y) ${{ github.repository_owner }}. Hosted on GitHub Pages.</p></footer></div></body></html>
           EOF
           echo "--- Finished index.html generation ---"
 
       - name: Setup APT Repo and Deploy
-        uses: jrandiny/apt-repo-action@v1.8
+        uses: jrandiny/apt-repo-action@v1.8 # <<< ĐÃ SỬA THÀNH v1.8
         with:
           github_token: ${{ secrets.PAT }}
           page_branch: gh-pages
