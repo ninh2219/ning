@@ -1,28 +1,31 @@
 # .github/workflows/update-apt-repo.yaml
-# PHIÊN BẢN CUỐI CÙNG - ĐÃ SỬA LỖI PERMISSION
+# PHIÊN BẢN HOÀN CHỈNH CUỐI CÙNG
 
 name: Build and Deploy APT Repo
 
 on:
   push:
     branches: [ main ]
+  # Cho phép chạy thủ công từ tab Actions
   workflow_dispatch:
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
-    # <<< THÊM KHỐI NÀY VÀO ĐỂ CẤP QUYỀN GHI CHO WORKFLOW
+    # Cấp quyền cho workflow để có thể push lên nhánh gh-pages
     permissions:
       contents: write
 
     steps:
+      # Bước 1: Lấy mã nguồn về
       - name: Checkout main branch
         uses: actions/checkout@v4
 
+      # Bước 2: Cài đặt các công cụ cần thiết
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y dpkg-dev gpg
 
+      # Bước 3: Import GPG key để ký repo
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v6
@@ -30,18 +33,25 @@ jobs:
           gpg_private_key: ${{ secrets.PRIVATE_KEY }}
           passphrase: ${{ secrets.KEY_PASSPHRASE }}
 
+      # Bước 4: Tạo cấu trúc thư mục để deploy
       - name: Create directory structure
         run: mkdir -p public/debs
 
-      - name: Copy static files and debs
+      # Bước 5: Copy các file cần thiết vào thư mục public
+      - name: Copy essential files
         run: |
           # Dùng if để tránh lỗi nếu không có file .deb nào
           if [ -n "$(ls -A debs/*.deb 2>/dev/null)" ]; then
             cp -r debs/* public/debs/
           fi
-          cp style.css public/
+          # Chỉ copy style.css nếu nó tồn tại
+          if [ -f "style.css" ]; then
+            cp style.css public/
+          fi
+          # Xuất public key để người dùng có thể tải về
           echo "${{ secrets.PUBLIC_KEY }}" > public/KEY.gpg
 
+      # Bước 6: Xây dựng APT Repository bằng lệnh Linux tiêu chuẩn
       - name: Build APT Repository
         run: |
           cd public
@@ -52,36 +62,14 @@ jobs:
           gpg -abs -u "${{ steps.import_gpg.outputs.email }}" -o Release.gpg Release
           cd ..
       
-      - name: Generate professional index.html
-        run: |
-          cat <<EOF > public/index.html
-          <!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Repo của ${{ github.repository_owner }}</title><link rel="stylesheet" href="style.css"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head><body><div class="container"><header><h1>${{ github.event.repository.name }}</h1><p>Kho lưu trữ APT được host trên GitHub Pages.</p></header><main><section class="installation"><h2>Hướng dẫn cài đặt</h2><pre><code># Thêm GPG Key
-          curl -sS --compressed "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/KEY.gpg" | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg >/dev/null
-          # Thêm Repo
-          echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg] https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/ /" | sudo tee /etc/apt/sources.list.d/${{ github.event.repository.name }}.list
-          # Cập nhật
-          sudo apt update</code></pre></section><section class="packages"><h2>Danh sách các gói</h2><div class="package-list">
-          EOF
+      # Bước 7: Chạy kịch bản rời để tạo trang index.html
+      - name: Generate index.html page
+        run: ./generate-index.sh
 
-          # Vòng lặp an toàn hơn
-          find debs -name "*.deb" -print0 | while IFS= read -r -d '' deb; do
-            PACKAGE_NAME=\$(dpkg-deb -f "\$deb" Package)
-            VERSION=\$(dpkg-deb -f "\$deb" Version)
-            DESCRIPTION=\$(dpkg-deb -f "\$deb" Description | head -n 1)
-            cat <<EOF >> public/index.html
-          <div class="package-item"><div class="package-info"><h3>\$PACKAGE_NAME</h3><p style="color: #aaa; font-size: 0.9em;">Phiên bản: \$VERSION</p><p>\$DESCRIPTION</p></div></div>
-          EOF
-          done
-
-          cat <<EOF >> public/index.html
-          </div></section></main><footer><p>&copy; $(date +%Y) ${{ github.repository_owner }}. Hosted on GitHub Pages.</p></footer></div></body></html>
-          EOF
-
+      # Bước 8: Deploy thư mục 'public' lên nhánh gh-pages
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
-          # Thay đổi này quan trọng: Dùng GITHUB_TOKEN mặc định thay vì PAT
-          # vì chúng ta đã cấp quyền 'contents: write' ở trên
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
           user_name: 'github-actions[bot]'
