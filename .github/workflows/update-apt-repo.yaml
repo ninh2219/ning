@@ -1,109 +1,70 @@
 # .github/workflows/update-apt-repo.yaml
-# FILE ĐÃ ĐƯỢC SỬA LẠI VÀ THÊM BƯỚC DEBUG
+# Phiên bản cuối cùng để debug
 
-name: Update APT Repo on GitHub Pages
+name: Build and Deploy APT Repo
 
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'debs/**'
-  # Cho phép chạy thủ công từ tab Actions
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      # Bước 1: Checkout mã nguồn từ nhánh 'main'
       - name: Checkout main branch
         uses: actions/checkout@v4
+        with:
+          # Lấy toàn bộ lịch sử git để có thể commit ngược lại
+          fetch-depth: 0
 
-      # <<< BƯỚC DEBUG ĐƯỢC THÊM VÀO ĐÂY
-      # Bước này sẽ liệt kê tất cả các file và thư mục để kiểm tra
-      - name: Debug - List all files
+      - name: Debug - List all files at start
         run: ls -R
 
-      # Bước 2: Cài đặt các công cụ cần thiết
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y apt-utils gzip dpkg-dev
 
-      # Bước 3: NÂNG CẤP - Tự động tạo trang index.html chuyên nghiệp
       - name: Generate professional index.html
         run: |
-          # Bắt đầu file HTML với CSS và header
+          echo "--- Starting index.html generation ---"
+          # Kiểm tra xem thư mục debs có tồn tại không
+          if [ ! -d "debs" ] || [ -z "$(ls -A debs/*.deb 2>/dev/null)" ]; then
+            echo "Warning: 'debs' directory is empty or does not exist. No packages to list."
+          fi
+          
+          # Bắt đầu file HTML
           cat <<EOF > index.html
-          <!DOCTYPE html>
-          <html lang="vi">
-          <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Repo của ${{ github.repository_owner }}</title>
-              <link rel="stylesheet" href="style.css">
-              <link rel="preconnect" href="https://fonts.googleapis.com">
-              <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-              <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
-          </head>
-          <body>
-          <div class="container">
-              <header>
-                  <h1>${{ github.event.repository.name }}</h1>
-                  <p>Kho lưu trữ APT được host trên GitHub Pages.</p>
-              </header>
-              <main>
-                  <section class="installation">
-                      <h2>Hướng dẫn cài đặt</h2>
-                      <pre><code># Thêm GPG Key
-          curl -s --compressed "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/KEY.gpg" | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg >/dev/null
-          # Thêm Repo
-          echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg] https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo noble main" | sudo tee /etc/apt/sources.list.d/${{ github.event.repository.name }}.list
-          # Cập nhật
-          sudo apt update</code></pre>
-                  </section>
-                  <section class="packages">
-                      <h2>Danh sách các gói</h2>
-                      <div class="package-list">
+          <!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Repo của ${{ github.repository_owner }}</title><link rel="stylesheet" href="style.css"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head><body><div class="container"><header><h1>${{ github.event.repository.name }}</h1><p>Kho lưu trữ APT được host trên GitHub Pages.</p></header><main><section class="installation"><h2>Hướng dẫn cài đặt</h2><pre><code># Thêm GPG Key
+curl -sS --compressed "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/KEY.gpg" | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg >/dev/null
+# Thêm Repo
+echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg] https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/ /" | sudo tee /etc/apt/sources.list.d/${{ github.event.repository.name }}.list
+# Cập nhật
+sudo apt update</code></pre></section><section class="packages"><h2>Danh sách các gói</h2><div class="package-list">
           EOF
 
-          # Lặp qua từng file .deb, trích xuất thông tin và thêm vào file HTML
+          # Lặp qua từng file .deb
           for deb in debs/*.deb; do
             if [ -f "\$deb" ]; then
+              echo "Processing \$deb..."
               PACKAGE_NAME=\$(dpkg-deb -f "\$deb" Package)
               VERSION=\$(dpkg-deb -f "\$deb" Version)
-              DESCRIPTION=\$(dpkg-deb -f "\$deb" Description | head -n 1) # Chỉ lấy dòng đầu tiên của mô tả
+              DESCRIPTION=\$(dpkg-deb -f "\$deb" Description | head -n 1)
               cat <<EOF >> index.html
-                          <div class="package-item">
-                              <div class="package-info">
-                                  <h3>\$PACKAGE_NAME</h3>
-                                  <p style="color: #aaa; font-size: 0.9em;">Phiên bản: \$VERSION</p>
-                                  <p>\$DESCRIPTION</p>
-                              </div>
-                          </div>
+<div class="package-item"><div class="package-info"><h3>\$PACKAGE_NAME</h3><p style="color: #aaa; font-size: 0.9em;">Phiên bản: \$VERSION</p><p>\$DESCRIPTION</p></div></div>
           EOF
             fi
           done
 
           # Đóng file HTML
           cat <<EOF >> index.html
-                      </div>
-                  </section>
-              </main>
-              <footer>
-                  <p>&copy; $(date +%Y) ${{ github.repository_owner }}. Hosted on GitHub Pages.</p>
-              </footer>
-          </div>
-          </body>
-          </html>
+</div></section></main><footer><p>&copy; $(date +%Y) ${{ github.repository_owner }}. Hosted on GitHub Pages.</p></footer></div></body></html>
           EOF
+          echo "--- Finished index.html generation ---"
 
-      # Bước 4: Tạo repo và deploy tất cả lên nhánh gh-pages
-      # Action này sẽ tự động lấy các file .deb, file index.html, style.css, v.v. để deploy
       - name: Setup APT Repo and Deploy
-        uses: jrandiny/apt-repo-action@v1
+        uses: jrandiny/apt-repo-action@v1.8
         with:
           github_token: ${{ secrets.PAT }}
-          # Action này sẽ tìm tất cả các file trong thư mục gốc để đưa lên Pages
-          # nên không cần chỉ định file nữa, nó sẽ tự lấy index.html, style.css...
           page_branch: gh-pages
           public_key: ${{ secrets.PUBLIC_KEY }}
           private_key: ${{ secrets.PRIVATE_KEY }}
