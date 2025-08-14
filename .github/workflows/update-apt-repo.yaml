@@ -1,3 +1,6 @@
+# .github/workflows/update-apt-repo.yaml
+# FILE ĐÃ ĐƯỢC SỬA LẠI HOÀN CHỈNH
+
 name: Update APT Repo on GitHub Pages
 
 on:
@@ -5,54 +8,98 @@ on:
     branches: [ main ]
     paths:
       - 'debs/**'
+  # Cho phép chạy thủ công từ tab Actions
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      # Bước 1: Checkout mã nguồn từ nhánh 'main'
+      - name: Checkout main branch
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y apt-utils gzip dpkg-dev
+      # Bước 2: Cài đặt các công cụ cần thiết
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y apt-utils gzip dpkg-dev
 
-    - name: List deb files for index.html
-      run: |
-        echo "<html><body><h1>Danh sách Packages Debian</h1><ul>" > index.html
-        for deb in debs/*.deb; do
-          if [ -f "$deb" ]; then
-            echo "<li><a href=\"https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/debs/$(basename $deb)\">$(basename $deb)</a></li>" >> index.html
-          fi
-        done
-        echo "</ul></body></html>" >> index.html
-
-    - name: Setup APT Repo
-      uses: jrandiny/apt-repo-action@v1
-      with:
-        github_token: ${{ secrets.PAT }}
-        arch: |
-          amd64
-          arm64  # Thêm arch nếu cần
-        version: |
-          noble
-          jammy  # Ubuntu versions (codename)
-        file: debs/*.deb  # Hoặc chỉ định file cụ thể
-        file_target_version: noble  # Phù hợp với version của deb
-        public_key: ${{ secrets.PUBLIC_KEY }}
-        private_key: ${{ secrets.PRIVATE_KEY }}
-        key_passphrase: ${{ secrets.KEY_PASSPHRASE }}
-        page_branch: gh-pages
-        repo_folder: repo  # Thư mục trên Pages: repo/dists, repo/pool
-
-    - name: Commit index.html to main (optional)
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git add index.html
-        git commit -m "Cập nhật index.html" || echo "Không có thay đổi"
-        git push
-# Thêm bước này vào file .yml của bạn
-      - name: Generate Packages HTML Page
-        id: generate_html
+      # Bước 3: NÂNG CẤP - Tự động tạo trang index.html chuyên nghiệp
+      - name: Generate professional index.html
         run: |
-          # Chạy script Python để tạo file packages.html
-          python scripts/generate_html.py
+          # Bắt đầu file HTML với CSS và header
+          cat <<EOF > index.html
+          <!DOCTYPE html>
+          <html lang="vi">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Repo của ${{ github.repository_owner }}</title>
+              <link rel="stylesheet" href="style.css">
+              <link rel="preconnect" href="https://fonts.googleapis.com">
+              <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+              <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+          </head>
+          <body>
+          <div class="container">
+              <header>
+                  <h1>${{ github.event.repository.name }}</h1>
+                  <p>Kho lưu trữ APT được host trên GitHub Pages.</p>
+              </header>
+              <main>
+                  <section class="installation">
+                      <h2>Hướng dẫn cài đặt</h2>
+                      <pre><code># Thêm GPG Key
+          curl -s --compressed "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/KEY.gpg" | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg >/dev/null
+          # Thêm Repo
+          echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/${{ github.event.repository.name }}.gpg] https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/repo noble main" | sudo tee /etc/apt/sources.list.d/${{ github.event.repository.name }}.list
+          # Cập nhật
+          sudo apt update</code></pre>
+                  </section>
+                  <section class="packages">
+                      <h2>Danh sách các gói</h2>
+                      <div class="package-list">
+          EOF
+
+          # Lặp qua từng file .deb, trích xuất thông tin và thêm vào file HTML
+          for deb in debs/*.deb; do
+            if [ -f "\$deb" ]; then
+              PACKAGE_NAME=\$(dpkg-deb -f "\$deb" Package)
+              VERSION=\$(dpkg-deb -f "\$deb" Version)
+              DESCRIPTION=\$(dpkg-deb -f "\$deb" Description | head -n 1) # Chỉ lấy dòng đầu tiên của mô tả
+              cat <<EOF >> index.html
+                          <div class="package-item">
+                              <div class="package-info">
+                                  <h3>\$PACKAGE_NAME</h3>
+                                  <p style="color: #aaa; font-size: 0.9em;">Phiên bản: \$VERSION</p>
+                                  <p>\$DESCRIPTION</p>
+                              </div>
+                          </div>
+          EOF
+            fi
+          done
+
+          # Đóng file HTML
+          cat <<EOF >> index.html
+                      </div>
+                  </section>
+              </main>
+              <footer>
+                  <p>&copy; $(date +%Y) ${{ github.repository_owner }}. Hosted on GitHub Pages.</p>
+              </footer>
+          </div>
+          </body>
+          </html>
+          EOF
+
+      # Bước 4: Tạo repo và deploy tất cả lên nhánh gh-pages
+      # Action này sẽ tự động lấy các file .deb, file index.html, style.css, v.v. để deploy
+      - name: Setup APT Repo and Deploy
+        uses: jrandiny/apt-repo-action@v1
+        with:
+          github_token: ${{ secrets.PAT }}
+          # Action này sẽ tìm tất cả các file trong thư mục gốc để đưa lên Pages
+          # nên không cần chỉ định file nữa, nó sẽ tự lấy index.html, style.css...
+          page_branch: gh-pages
+          public_key: ${{ secrets.PUBLIC_KEY }}
+          private_key: ${{ secrets.PRIVATE_KEY }}
+          key_passphrase: ${{ secrets.KEY_PASSPHRASE }}
