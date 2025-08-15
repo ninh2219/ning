@@ -1,10 +1,11 @@
-
 <main class="container my-4">
   <h1 class="h4 mb-3">Search</h1>
 
   <div class="row g-2 align-items-center mb-3">
     <div class="col-md-8">
-      <input id="q" class="form-control form-control-lg" placeholder="Nhập từ khóa (package, file, arch, version, mô tả, ...)" autofocus>
+      <input id="q" class="form-control form-control-lg"
+             placeholder="Nhập từ khóa (package, file, arch, version, mô tả, ...)"
+             autofocus>
     </div>
     <div class="col-md-4 d-flex gap-2">
       <select id="type" class="form-select">
@@ -20,7 +21,11 @@
     <table class="table table-sm table-striped align-middle">
       <thead>
         <tr>
-          <th>Type</th><th>Name</th><th>Version/Size</th><th>Arch/Hash</th><th>Link</th>
+          <th>Type</th>
+          <th>Name</th>
+          <th>Version/Size</th>
+          <th>Arch/Hash</th>
+          <th>Link</th>
         </tr>
       </thead>
       <tbody id="rows"><tr><td colspan="5">Đang tải dữ liệu…</td></tr></tbody>
@@ -30,57 +35,94 @@
 
 <script>
 let DATA = [];
+
+function norm(v){ return (v ?? '').toString().toLowerCase(); }
+function fmtMB(n){ return (n ? (n/1e6).toFixed(2) + ' MB' : ''); }
+
 async function load() {
   try {
     const res = await fetch('manifest.json', {cache: 'no-store'});
-    const j = await res.json();
-    DATA = j.items || [];
+    const { items=[] } = await res.json();
+    // giữ nguyên: items có cả {type:'deb', ...} và {type:'ipa', ...}
+    DATA = items;
     render();
-  } catch(e) {
+  } catch (e) {
     document.getElementById('rows').innerHTML =
       `<tr><td colspan="5"><em>Lỗi tải manifest: ${e.message}</em></td></tr>`;
   }
 }
-function norm(s){ return (s||'').toString().toLowerCase(); }
+
+function match(item, q, t){
+  if (t && item.type !== t) return false;
+  if (!q) return true;
+  const hay = [
+    item.type, item.package, item.version, item.arch, item.file,
+    item.url, item.description, item.sha256, item.category
+  ].map(norm).join(' ');
+  return hay.includes(q);
+}
+
+function badge(type){
+  const cls = type === 'deb' ? 'primary' : 'success';
+  return `<span class="badge text-bg-${cls}">${type.toUpperCase()}</span>`;
+}
+
+function rowOf(item){
+  if (item.type === 'deb'){
+    const name = item.package || item.file || '';
+    const ver  = item.version || '';
+    const arch = item.arch || '';
+    const link = item.url ? `<a href="${item.url}">Download</a>` : '';
+    return `<tr>
+      <td>${badge('deb')}</td>
+      <td class="text-break">${name}</td>
+      <td>${ver}</td>
+      <td>${arch}</td>
+      <td>${link}</td>
+    </tr>`;
+  } else {
+    const name = item.file || '';
+    const size = fmtMB(item.size);
+    const hash = item.sha256 || '';
+    const link = item.url ? `<a href="${item.url}">Download</a>` : '';
+    return `<tr>
+      <td>${badge('ipa')}</td>
+      <td class="text-break">${name}</td>
+      <td>${size}</td>
+      <td class="text-break">${hash}</td>
+      <td>${link}</td>
+    </tr>`;
+  }
+}
+
 function render(){
   const q = norm(document.getElementById('q').value);
-  const t = document.getElementById('type').value;
-  const out = [];
-  for (const it of DATA) {
-    if (t && it.type !== t) continue;
-    const hay = [
-      it.type, it.package, it.version, it.arch, it.file, it.url, it.description,
-      it.sha256, it.category
-    ].map(norm).join(' ');
-    if (q && !hay.includes(q)) continue;
+  const t = document.getElementById('type').value; // '' | 'deb' | 'ipa'
+  const rows = [];
 
-    if (it.type === 'deb') {
-      out.push(`<tr>
-        <td><span class="badge text-bg-primary">DEB</span></td>
-        <td class="text-break">${it.package||it.file||''}</td>
-        <td>${it.version||''}</td>
-        <td>${it.arch||''}</td>
-        <td>${it.url ? `<a href="${it.url}">Download</a>` : ''}</td>
-      </tr>`);
-    } else {
-      const size = it.size ? (it.size/1e6).toFixed(2)+' MB' : '';
-      out.push(`<tr>
-        <td><span class="badge text-bg-success">IPA</span></td>
-        <td class="text-break">${it.file||''}</td>
-        <td>${size}</td>
-        <td class="text-break">${it.sha256||''}</td>
-        <td>${it.url ? `<a href="${it.url}">Download</a>` : ''}</td>
-      </tr>`);
-    }
+  // sắp xếp nhẹ: deb lên trước rồi theo tên
+  const sorted = [...DATA].sort((a,b)=>{
+    if (a.type !== b.type) return a.type.localeCompare(b.type);
+    const an = (a.package || a.file || '').toLowerCase();
+    const bn = (b.package || b.file || '').toLowerCase();
+    return an.localeCompare(bn);
+  });
+
+  for (const it of sorted){
+    if (!match(it, q, t)) continue;
+    rows.push(rowOf(it));
   }
   document.getElementById('rows').innerHTML =
-    out.join('') || `<tr><td colspan="5"><em>Không có kết quả.</em></td></tr>`;
+    rows.join('') || `<tr><td colspan="5"><em>Không có kết quả.</em></td></tr>`;
 }
+
 document.getElementById('q').addEventListener('input', render);
 document.getElementById('type').addEventListener('change', render);
 document.getElementById('clearBtn').addEventListener('click', () => {
-  document.getElementById('q').value = ''; document.getElementById('type').value='';
+  document.getElementById('q').value = '';
+  document.getElementById('type').value = '';
   render();
 });
+
 load();
 </script>
