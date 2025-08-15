@@ -1,4 +1,4 @@
-name: Deploy site to GitHub Pages (with Search & DEB fix)
+name: Deploy site to GitHub Pages (fixed manifest & search)
 
 on:
   push:
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' để tạo CNAME=repo.ninh.us
+  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' nếu muốn tạo CNAME=repo.ninh.us
 
 jobs:
   build:
@@ -35,7 +35,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y dpkg-dev jq
 
-      - name: Build site into ./out (templates + search)
+      - name: Build site into ./out
         run: |
           set -euo pipefail
           rm -rf out && mkdir -p out/repo out/ipa
@@ -94,7 +94,7 @@ jobs:
             rm -f ../_head.tmp
           )
 
-          # --- Manifest tổng (deb + ipa)
+          # --- Manifest tổng (DEB + IPA) — fixed with process substitution
           ( cd out
             # checksum cho deb
             if find repo -maxdepth 1 -type f -name '*.deb' | grep -q .; then
@@ -105,54 +105,59 @@ jobs:
 
             PACK=repo/Packages; touch "$PACK"
 
-            { echo '{ "items": ['; first=1
+            {
+              echo '{ "items": ['
+              first=1
 
-              # IPA từ out/ipa/manifest.json
+              # Append IPA (giữ biến first trong shell hiện tại)
               if [ -f ipa/manifest.json ]; then
-                jq -c '.items[]' ipa/manifest.json | while read -r it; do
-                  file=$(jq -r '.file'  <<<"$it")
-                  size=$(jq -r '.size'  <<<"$it")
-                  sum=$(jq -r '.sha256'<<<"$it")
-                  url=$(jq -r '.url'  <<<"$it")
-                  [ $first -eq 0 ] && printf ',\n'; first=0
+                while IFS= read -r it; do
+                  file=$(jq -r '.file'   <<<"$it")
+                  size=$(jq -r '.size'   <<<"$it")
+                  sum=$(jq -r '.sha256'  <<<"$it")
+                  url=$(jq -r '.url'     <<<"$it")
+                  [ $first -eq 0 ] && printf ',\n'
+                  first=0
                   printf '  { "type":"ipa","category":%s,"file":%s,"size":%s,"sha256":%s,"url":%s }' \
                     "$(jq -Rn --arg v "uncategorized" '$v')" \
                     "$(jq -Rn --arg v "$file" '$v')" \
                     "$size" \
-                    "$(jq -Rn --arg v "$sum" '$v')" \
+                    "$(jq -Rn --arg v "$sum"  '$v')" \
                     "$(jq -Rn --arg v "ipa/$url" '$v')"
-                done
+                done < <(jq -c '.items[]' ipa/manifest.json)
               fi
 
-              # DEB (đọc Packages) — FIX đường dẫn ./ -> repo/
-              awk -v RS='' '{
-                pkg=""; ver=""; arch=""; file=""; size="";
-                n=split($0, a, /\n/);
-                for(i=1;i<=n;i++){
-                  split(a[i], kv, ": "); k=kv[1]; v=substr(a[i], index(a[i],": ")+2);
-                  if(k=="Package") pkg=v; else if(k=="Version") ver=v;
-                  else if(k=="Architecture") arch=v; else if(k=="Filename") file=v; else if(k=="Size") size=v;
-                }
-                if(file!=""){ printf "PKG\t%s\t%s\t%s\t%s\t%s\n", pkg, ver, arch, size, file; }
-              }' "$PACK" \
-              | while IFS=$'\t' read -r _ pkg ver arch size file; do
-                  rel="${file#./}"               # bỏ ./ ở đầu
-                  path="repo/$rel"               # chuẩn hóa path thật
-                  [ -f "$path" ] || continue
+              # Append DEB từ Packages (normalize ./ -> repo/)
+              while IFS=$'\t' read -r _ pkg ver arch size file; do
+                rel="${file#./}"         # './foo.deb' -> 'foo.deb'
+                path="repo/$rel"
+                [ -f "$path" ] || continue
 
-                  # sha256 từ repo/SHA256SUMS
-                  sum=$( (cd repo && grep -E "  $(printf '%s' "$rel" | sed 's/[.[\*^$]/\\&/g')\$" SHA256SUMS | awk '{print $1}') )
+                # sha256 theo tên tương đối (escape ký tự đặc biệt)
+                sum=$( (cd repo && grep -E "  $(printf '%s' "$rel" | sed 's/[.[\*^$]/\\&/g')\$" SHA256SUMS | awk '{print $1}') )
 
-                  [ $first -eq 0 ] && printf ',\n'; first=0
-                  printf '  { "type":"deb","package":%s,"version":%s,"arch":%s,"size":%s,"sha256":%s,"url":%s,"file":%s }' \
-                    "$(jq -Rn --arg v "$pkg" '$v')" \
-                    "$(jq -Rn --arg v "$ver" '$v')" \
-                    "$(jq -Rn --arg v "$arch" '$v')" \
-                    "$size" \
-                    "$(jq -Rn --arg v "$sum"  '$v')" \
-                    "$(jq -Rn --arg v "$path" '$v')" \
-                    "$(jq -Rn --arg v "$(basename "$rel")" '$v')"
-                done
+                [ $first -eq 0 ] && printf ',\n'
+                first=0
+                printf '  { "type":"deb","package":%s,"version":%s,"arch":%s,"size":%s,"sha256":%s,"url":%s,"file":%s }' \
+                  "$(jq -Rn --arg v "$pkg" '$v')" \
+                  "$(jq -Rn --arg v "$ver" '$v')" \
+                  "$(jq -Rn --arg v "$arch" '$v')" \
+                  "$size" \
+                  "$(jq -Rn --arg v "$sum"  '$v')" \
+                  "$(jq -Rn --arg v "$path" '$v')" \
+                  "$(jq -Rn --arg v "$(basename "$rel")" '$v')"
+              done < <(
+                awk -v RS='' '{
+                  pkg=""; ver=""; arch=""; file=""; size="";
+                  n=split($0, a, /\n/);
+                  for(i=1;i<=n;i++){
+                    split(a[i], kv, ": "); k=kv[1]; v=substr(a[i], index(a[i],": ")+2);
+                    if(k=="Package") pkg=v; else if(k=="Version") ver=v;
+                    else if(k=="Architecture") arch=v; else if(k=="Filename") file=v; else if(k=="Size") size=v;
+                  }
+                  if(file!=""){ printf "PKG\t%s\t%s\t%s\t%s\t%s\n", pkg, ver, arch, size, file; }
+                }' "$PACK"
+              )
 
               echo '] }'
             } > manifest.json
