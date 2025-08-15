@@ -1,4 +1,4 @@
-name: Deploy site to GitHub Pages (with Search)
+name: Deploy site to GitHub Pages (with Search & DEB fix)
 
 on:
   push:
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' để ghi CNAME=repo.ninh.us
+  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' để tạo CNAME=repo.ninh.us
 
 jobs:
   build:
@@ -96,30 +96,35 @@ jobs:
 
           # --- Manifest tổng (deb + ipa)
           ( cd out
+            # checksum cho deb
             if find repo -maxdepth 1 -type f -name '*.deb' | grep -q .; then
               (cd repo && sha256sum *.deb > SHA256SUMS)
             else
               : > repo/SHA256SUMS || true
             fi
+
             PACK=repo/Packages; touch "$PACK"
+
             { echo '{ "items": ['; first=1
-              # IPA
-              if [ -d ipa ]; then
-                while IFS= read -r -d '' f; do
-                  size=$(stat -c%s "ipa/$f" 2>/dev/null || stat -f%z "ipa/$f")
-                  sum=$( (cd ipa && grep "  ./$f$" SHA256SUMS | awk '{print $1}') )
-                  url="ipa/$f"; file=$(basename "$f")
-                  catg="${f%/*}"; [ "$catg" = "$f" ] && catg="uncategorized" || catg="${catg##*/}"
+
+              # IPA từ out/ipa/manifest.json
+              if [ -f ipa/manifest.json ]; then
+                jq -c '.items[]' ipa/manifest.json | while read -r it; do
+                  file=$(jq -r '.file'  <<<"$it")
+                  size=$(jq -r '.size'  <<<"$it")
+                  sum=$(jq -r '.sha256'<<<"$it")
+                  url=$(jq -r '.url'  <<<"$it")
                   [ $first -eq 0 ] && printf ',\n'; first=0
                   printf '  { "type":"ipa","category":%s,"file":%s,"size":%s,"sha256":%s,"url":%s }' \
-                    "$(jq -Rn --arg v "$catg" '$v')" \
+                    "$(jq -Rn --arg v "uncategorized" '$v')" \
                     "$(jq -Rn --arg v "$file" '$v')" \
                     "$size" \
-                    "$(jq -Rn --arg v "$sum"  '$v')" \
-                    "$(jq -Rn --arg v "$url"  '$v')"
-                done < <(cd ipa && find . -type f -name '*.ipa' -printf '%P\0' | sort -z)
+                    "$(jq -Rn --arg v "$sum" '$v')" \
+                    "$(jq -Rn --arg v "ipa/$url" '$v')"
+                done
               fi
-              # DEB (đọc từ Packages)
+
+              # DEB (đọc Packages) — FIX đường dẫn ./ -> repo/
               awk -v RS='' '{
                 pkg=""; ver=""; arch=""; file=""; size="";
                 n=split($0, a, /\n/);
@@ -129,19 +134,26 @@ jobs:
                   else if(k=="Architecture") arch=v; else if(k=="Filename") file=v; else if(k=="Size") size=v;
                 }
                 if(file!=""){ printf "PKG\t%s\t%s\t%s\t%s\t%s\n", pkg, ver, arch, size, file; }
-              }' "$PACK" | while IFS=$'\t' read -r _ pkg ver arch size file; do
-                [ -f "$file" ] || continue
-                sum=$( (cd repo && grep "  $(basename "$file")$" SHA256SUMS | awk '{print $1}') )
-                [ $first -eq 0 ] && printf ',\n'; first=0
-                printf '  { "type":"deb","package":%s,"version":%s,"arch":%s,"size":%s,"sha256":%s,"url":%s,"file":%s }' \
-                  "$(jq -Rn --arg v "$pkg" '$v')" \
-                  "$(jq -Rn --arg v "$ver" '$v')" \
-                  "$(jq -Rn --arg v "$arch" '$v')" \
-                  "$size" \
-                  "$(jq -Rn --arg v "$sum"  '$v')" \
-                  "$(jq -Rn --arg v "$file" '$v')" \
-                  "$(jq -Rn --arg v "$(basename "$file")" '$v')"
-              done
+              }' "$PACK" \
+              | while IFS=$'\t' read -r _ pkg ver arch size file; do
+                  rel="${file#./}"               # bỏ ./ ở đầu
+                  path="repo/$rel"               # chuẩn hóa path thật
+                  [ -f "$path" ] || continue
+
+                  # sha256 từ repo/SHA256SUMS
+                  sum=$( (cd repo && grep -E "  $(printf '%s' "$rel" | sed 's/[.[\*^$]/\\&/g')\$" SHA256SUMS | awk '{print $1}') )
+
+                  [ $first -eq 0 ] && printf ',\n'; first=0
+                  printf '  { "type":"deb","package":%s,"version":%s,"arch":%s,"size":%s,"sha256":%s,"url":%s,"file":%s }' \
+                    "$(jq -Rn --arg v "$pkg" '$v')" \
+                    "$(jq -Rn --arg v "$ver" '$v')" \
+                    "$(jq -Rn --arg v "$arch" '$v')" \
+                    "$size" \
+                    "$(jq -Rn --arg v "$sum"  '$v')" \
+                    "$(jq -Rn --arg v "$path" '$v')" \
+                    "$(jq -Rn --arg v "$(basename "$rel")" '$v')"
+                done
+
               echo '] }'
             } > manifest.json
           )
@@ -174,7 +186,7 @@ jobs:
           } > out/packages.html
           rm -f out/_head.tmp
 
-          # --- search.html  (THÊM MỚI)
+          # --- search.html
           cat out/_head.html > out/_head.tmp
           echo '<title>Search</title>' >> out/_head.tmp
           {
