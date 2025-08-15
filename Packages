@@ -1,0 +1,81 @@
+Package: bag.xml.tuberepair
+Version: 1.2-Beta-1
+Architecture: iphoneos-arm
+Maintainer: bag.xml, Requis
+Installed-Size: 216
+Depends: mobilesubstrate, preferenceloader
+Filename: debs/bag.xml.tuberepair_1.2-Beta-1_iphoneos-arm.deb
+Size: 100064
+MD5sum: ed80b2201b9de8bae2c8243a4c610375
+SHA1: d625d830c96d72793a43cf27bbb842202867b698
+SHA256: 61ee14bcb677a4d9c32157f88334ed711a9b452717342d711fed3cbdef8cdc59
+Section: Tweaks
+Description: TubeRepair is a tweak that redirects YouTube API traffic from the classic YouTube app, and the App Store YouTube app to a designated custom server. You could also just say that it fixes both applications. For assistance refer to the guide (https://tuberepair.bag-xml.com/guide/)
+Author: bag.xml, Requis
+Depiction: http://cydia.skyglow.es/depictions/com.skyglow.tuberepair/depictions/index.html
+Icon: file:///Library/Application%20Support/bag.xml.tuberepair/TubeRepair-Icon.png
+Name: TubeRepair [BETA]
+
+Package: com.linusyang.ytbnoad
+Version: 0.1
+Architecture: iphoneos-arm
+Maintainer: Linus Yang
+Installed-Size: 344
+Depends: mobilesubstrate
+Conflicts: me.alfhaily.adblockforyoutube
+Filename: debs/com.linusyang.ytbnoad_0.1_iphoneos-arm.deb
+Size: 50654
+MD5sum: 39e43deaa545fc126991b2fe2343d4c4
+SHA1: 848ecf5a0343fe1ac5e4b1cda292d2485938f2a5
+SHA256: 58801323e9993fa855e063a887ed63f4b84ca966a6ca83459b3d5ca4e342843f
+Section: Tweaks
+Description: remove ads in Youtube app
+Author: Linus Yang
+Name: YoutubeNoAd
+
+Package: cydia.net.angelxwind.appsyncunified
+Version: 78.0
+Architecture: iphoneos-arm
+Maintainer: Karen/あけみ <karen@akemi.ai>
+Installed-Size: 496
+Depends: firmware (>= 5.0), firmware (<= 13.5.5), firmware (<< 12.0) | mobilesubstrate (>= 0.9.5100) | mobilesubstrate (<= 0.9.6301) | mobilesubstrate (= 0.9.7020) | mobilesubstrate (= 0.9.7033) | mobilesubstrate (>= 0.9.7034) | com.ex.substitute (>= 0.1.0), firmware (<< 12.0) | mobilesubstrate (<< 99.0) | com.ex.libsubstitute (>= 0.1.1)
+Conflicts: us.hackulo.appsync50, us.hackulo.appsync50plus, com.hackyouriphone.appsync7, com.teiron.ppsync, appsync50plus2.25pp, com.linusyang.appsync, com.sull.appsyncunified, com.sull.appsyncunifiedbeta, com.xsellize.appsync50, com.xsellize.appsync50plus, appsync50plus.178, appsync50plus2.178, cydia.net.angelxwind.appsyncunified, com.ifucker.appsync, com.sexyphonetech.appsyncunified, appsyncunifiedofficial, org.digbick.asufixed, cn.mingmei.asu623517234615234813, science.xnu.substitute
+Replaces: us.hackulo.appsync50
+Provides: appsync
+Filename: debs/net.angelxwind.appsyncunified_78.0_iphoneos-arm.deb
+Size: 42210
+MD5sum: 9e324b47dc9dfca5e8d1c104ad46d1ce
+SHA1: e12e8ea3fcfcdee15529bc253ac7d4752919c6f0
+SHA256: 1ab0696d066a92b7fbcafbc63a215e24fc8e450590c20bed79d45aa3d693662f
+Section: Tweaks
+Homepage: https://cydia.akemi.ai/
+Description: Enables the ability to install unsigned/fakesigned iOS applications.
+Author: Linus Yang, Karen/あけみ <karen@akemi.ai>
+Depiction: https://cydia.akemi.ai/?page/net.angelxwind.appsyncunified
+Name: AppSync Unified
+
+Package: org.tihmstar.kDFUApp
+Version: 1.0.2
+Architecture: iphoneos-arm
+Maintainer: tihmstar
+Depends: openssl, libcrippy-1.0.0, libpartialzip-1.0.0, curl, kloader, firmware (>= 6.0)
+Filename: debs/org.tihmstar.kDFUApp-1.0.2.deb
+Size: 80458
+MD5sum: d2fb236c946705c835a08f844527f0c1
+SHA1: bd26bd0a4d7c9a60d0af75a962ced322962d2f3f
+SHA256: b52de8c051332425576b11a3d9ce9637a70c184afc5479ad449d1467a4868271
+Section: System
+Priority: optional
+Description: easy way to get into kDFU mode
+ kDFUApp is an easy way to get into kDFU mode
+ simply activate all switches and press the button
+ <br>
+ <br>Currently compatible with:
+ <br>iPhone3,1 / iPhone3,2 / iPhone3,3 / iPhone4,1 / iPhone5,1 / iPhone5,2 / iPhone5,4
+ <br>iPad2,1 / iPad2,2 / iPad2,3 / iPad3,1 / iPad3,3
+ <br>
+ <br>NOT COMPATIBLE WITH 64BIT DEVICES!
+Author: tihmstar
+Dev: tihmstar
+Name: kDFUApp
+
