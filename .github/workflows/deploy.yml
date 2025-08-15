@@ -12,10 +12,19 @@ on:
       - 'CydiaIcon.png'
   workflow_dispatch:
 
+# Cấp quyền cho Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,11 +34,8 @@ jobs:
       - name: Prepare build dir
         run: |
           rm -rf out && mkdir -p out/repo
-          # copy assets nếu có
           [ -f style.css ] && cp style.css out/ || true
           [ -f CydiaIcon.png ] && cp CydiaIcon.png out/ || true
-
-          # copy .deb
           if ls debs/*.deb >/dev/null 2>&1; then
             cp debs/*.deb out/repo/
           else
@@ -150,7 +156,7 @@ jobs:
                 <ul class="mb-0">
                   <li>Đã sinh <code>repo/Packages</code>?</li>
                   <li>Có file <code>.nojekyll</code> ở gốc?</li>
-                  <li>Settings → Pages trỏ <code>gh-pages</code> / root?</li>
+                  <li>Settings → Pages đã chọn nguồn GitHub Actions?</li>
                 </ul>
               </div>
               <div id="status" class="mb-3 text-muted">Đang tải…</div>
@@ -176,12 +182,11 @@ jobs:
                 const text = await res.text();
                 status.textContent = 'Tải xong.';
                 raw.textContent = text;
-                // parse blocks
-                const blocks = text.split(/\\n\\n+/).map(s=>s.trim()).filter(Boolean);
+                const blocks = text.split(/\n\n+/).map(s=>s.trim()).filter(Boolean);
                 const rows = [];
                 for(const b of blocks){
                   const map = {};
-                  for(const line of b.split('\\n')){
+                  for(const line of b.split('\n')){
                     const i = line.indexOf(':');
                     if(i>0){ map[line.slice(0,i).trim()] = line.slice(i+1).trim(); }
                   }
@@ -191,11 +196,7 @@ jobs:
                   const size = map['Size']||'';
                   const desc = map['Description']||'';
                   const file = map['Filename']||'';
-                  rows.push(
-                    `<tr><td>${name}</td><td>${ver}</td><td>${arch}</td>
-                    <td>${size}</td><td>${desc}</td>
-                    <td>${file ? `<a href="${file}">.deb</a>` : ''}</td></tr>`
-                  );
+                  rows.push(`<tr><td>${name}</td><td>${ver}</td><td>${arch}</td><td>${size}</td><td>${desc}</td><td>${file ? `<a href="${file}">.deb</a>` : ''}</td></tr>`);
                 }
                 body.innerHTML = rows.join('') || `<tr><td colspan="6"><em>Chưa có gói.</em></td></tr>`;
               }catch(e){
@@ -208,3 +209,25 @@ jobs:
           </body>
           </html>
           HTML
+
+      - name: Add .nojekyll and debug listing
+        run: |
+          touch out/.nojekyll
+          echo "==== OUT TREE ===="
+          ls -R out
+
+      - name: Upload artifact to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
