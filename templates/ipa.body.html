@@ -1,254 +1,34 @@
-name: Deploy site to GitHub Pages (fixed IPA + manifest)
+<script>
+async function loadIPA(){
+  const tbody = document.getElementById('tbody');
+  try{
+    // Đọc manifest RIÊNG trong thư mục /ipa/
+    const res = await fetch('manifest.json?nocache=' + Date.now(), {cache: 'no-store'});
+    const data = await res.json();
+    const items = Array.isArray(data.items) ? data.items : [];
 
-on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'debs/**'
-      - 'ipa/**'
-      - 'templates/**'
-      - 'style.css'
-      - 'CydiaIcon.png'
-      - '.github/workflows/*.yml'
-  workflow_dispatch: {}
+    if(items.length === 0){
+      tbody.innerHTML = '<tr><td colspan="4"><em>Chưa có IPA.</em></td></tr>';
+      return;
+    }
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+    const rows = items.map(it => {
+      const name = it.file || '';
+      const mb   = it.size ? (it.size/1e6).toFixed(2) + ' MB' : '';
+      const sha  = it.sha256 || '';
+      const url  = it.url || it.file || '';
+      return `<tr>
+        <td class="text-break">${name}</td>
+        <td>${mb}</td>
+        <td class="text-break">${sha}</td>
+        <td><a href="${url}">Download</a></td>
+      </tr>`;
+    });
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
-env:
-  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' nếu muốn tạo CNAME=repo.ninh.us
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev jq
-
-      - name: Build site into ./out
-        run: |
-          set -euo pipefail
-          rm -rf out && mkdir -p out/repo out/ipa
-
-          # assets
-          [ -f style.css ] && cp style.css out/
-          [ -f CydiaIcon.png ] && cp CydiaIcon.png out/
-
-          # templates -> out
-          cp templates/_head.html out/_head.html
-          cp templates/_nav.html  out/_nav.html
-          cp templates/_foot.html out/_foot.html
-
-          # --- DEB -> Packages(.gz)
-          if ls debs/*.deb >/dev/null 2>&1; then
-            cp debs/*.deb out/repo/
-          fi
-          (cd out/repo && dpkg-scanpackages . /dev/null > Packages && gzip -fk Packages)
-
-          # --- IPA: chỉ lấy file .ipa, tạo ipa/manifest.json & ipa/index.html
-          mkdir -p out/ipa
-          if find ipa -type f -name '*.ipa' 2>/dev/null | grep -q . ; then
-            # copy giữ cấu trúc thư mục con, CHỈ .ipa
-            while IFS= read -r -d '' f; do
-              rel="${f#ipa/}"                 # strip 'ipa/'
-              dest="out/ipa/$rel"
-              mkdir -p "$(dirname "$dest")"
-              cp "$f" "$dest"
-            done < <(find ipa -type f -name '*.ipa' -print0)
-
-            # SHA256 + manifest cho IPA
-            ( cd out/ipa
-              find . -type f -name '*.ipa' -print0 | xargs -0 sha256sum > SHA256SUMS
-              { echo '{ "items": ['; first=1
-                while IFS= read -r -d '' f; do
-                  size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
-                  sum=$(grep "  $f$" SHA256SUMS | awk '{print $1}')
-                  url="${f#./}"; file=$(basename "$f")
-                  [ $first -eq 0 ] && printf ',\n'; first=0
-                  printf '  { "file":%s,"size":%s,"sha256":%s,"url":%s }' \
-                    "$(jq -Rn --arg v "$file" '$v')" \
-                    "$size" \
-                    "$(jq -Rn --arg v "$sum"  '$v')" \
-                    "$(jq -Rn --arg v "$url"  '$v')"
-                done < <(find . -type f -name '*.ipa' -print0 | sort -z)
-                echo '] }'
-              } > manifest.json
-
-              # ipa/index.html dùng manifest RIÊNG
-              cat ../_head.html > ../_head.tmp
-              echo '<title>IPA Downloads · Ninh Repo</title>' >> ../_head.tmp
-              {
-                echo '<!doctype html><html lang="vi"><head>'
-                cat ../_head.tmp
-                echo '</head><body>'
-                cat ../_nav.html
-                # file này cần có script fetch("manifest.json")
-                cat ../../templates/ipa.body.html
-                cat ../_foot.html
-                echo '</body></html>'
-              } > index.html
-              rm -f ../_head.tmp
-            )
-          else
-            echo '{ "items": [] }' > out/ipa/manifest.json
-            # vẫn tạo ipa/index.html rỗng
-            cat out/_head.html > out/_head.tmp
-            echo '<title>IPA Downloads · Ninh Repo</title>' >> out/_head.tmp
-            {
-              echo '<!doctype html><html lang="vi"><head>'
-              cat out/_head.tmp
-              echo '</head><body>'
-              cat out/_nav.html
-              cat <<'HTML'
-<main class="container my-4">
-  <h1 class="h4">IPA Downloads</h1>
-  <p class="text-muted">Chưa có IPA.</p>
-</main>
-HTML
-              cat out/_foot.html
-              echo '</body></html>'
-            } > out/ipa/index.html
-            rm -f out/_head.tmp
-          fi
-
-          # --- Manifest tổng (DEB + IPA) — giữ biến first đúng bằng process substitution
-          ( cd out
-            # checksum cho deb
-            if find repo -maxdepth 1 -type f -name '*.deb' | grep -q .; then
-              (cd repo && sha256sum *.deb > SHA256SUMS)
-            else
-              : > repo/SHA256SUMS || true
-            fi
-
-            PACK=repo/Packages; touch "$PACK"
-
-            {
-              echo '{ "items": ['
-              first=1
-
-              # Append IPA từ ipa/manifest.json (RIÊNG)
-              if [ -f ipa/manifest.json ]; then
-                while IFS= read -r it; do
-                  file=$(jq -r '.file'   <<<"$it")
-                  size=$(jq -r '.size'   <<<"$it")
-                  sum=$(jq -r '.sha256'  <<<"$it")
-                  url=$(jq -r '.url'     <<<"$it")
-                  [ $first -eq 0 ] && printf ',\n'
-                  first=0
-                  printf '  { "type":"ipa","category":%s,"file":%s,"size":%s,"sha256":%s,"url":%s }' \
-                    "$(jq -Rn --arg v "uncategorized" '$v')" \
-                    "$(jq -Rn --arg v "$file" '$v')" \
-                    "$size" \
-                    "$(jq -Rn --arg v "$sum"  '$v')" \
-                    "$(jq -Rn --arg v "ipa/$url" '$v')"
-                done < <(jq -c '.items[]' ipa/manifest.json)
-              fi
-
-              # Append DEB từ Packages (normalize ./ -> repo/)
-              while IFS=$'\t' read -r _ pkg ver arch size file; do
-                rel="${file#./}"         # './foo.deb' -> 'foo.deb'
-                path="repo/$rel"
-                [ -f "$path" ] || continue
-
-                sum=$( (cd repo && grep -E "  $(printf '%s' "$rel" | sed 's/[.[\*^$]/\\&/g')\$" SHA256SUMS | awk '{print $1}') )
-
-                [ $first -eq 0 ] && printf ',\n'
-                first=0
-                printf '  { "type":"deb","package":%s,"version":%s,"arch":%s,"size":%s,"sha256":%s,"url":%s,"file":%s }' \
-                  "$(jq -Rn --arg v "$pkg" '$v')" \
-                  "$(jq -Rn --arg v "$ver" '$v')" \
-                  "$(jq -Rn --arg v "$arch" '$v')" \
-                  "$size" \
-                  "$(jq -Rn --arg v "$sum"  '$v')" \
-                  "$(jq -Rn --arg v "$path" '$v')" \
-                  "$(jq -Rn --arg v "$(basename "$rel")" '$v')"
-              done < <(
-                awk -v RS='' '{
-                  pkg=""; ver=""; arch=""; file=""; size="";
-                  n=split($0, a, /\n/);
-                  for(i=1;i<=n;i++){
-                    split(a[i], kv, ": "); k=kv[1]; v=substr(a[i], index(a[i],": ")+2);
-                    if(k=="Package") pkg=v; else if(k=="Version") ver=v;
-                    else if(k=="Architecture") arch=v; else if(k=="Filename") file=v; else if(k=="Size") size=v;
-                  }
-                  if(file!=""){ printf "PKG\t%s\t%s\t%s\t%s\t%s\n", pkg, ver, arch, size, file; }
-                }' "$PACK"
-              )
-
-              echo '] }'
-            } > manifest.json
-          )
-
-          # --- index.html
-          cat out/_head.html > out/_head.tmp
-          echo '<title>Ninh Repo</title>' >> out/_head.tmp
-          {
-            echo '<!doctype html><html lang="vi"><head>'
-            cat out/_head.tmp
-            echo '</head><body>'
-            cat out/_nav.html
-            cat templates/index.body.html
-            cat out/_foot.html
-            echo '</body></html>'
-          } > out/index.html
-          rm -f out/_head.tmp
-
-          # --- packages.html
-          cat out/_head.html > out/_head.tmp
-          echo '<title>Packages Viewer</title>' >> out/_head.tmp
-          {
-            echo '<!doctype html><html lang="vi"><head>'
-            cat out/_head.tmp
-            echo '</head><body>'
-            cat out/_nav.html
-            cat templates/packages.body.html
-            cat out/_foot.html
-            echo '</body></html>'
-          } > out/packages.html
-          rm -f out/_head.tmp
-
-          # --- search.html
-          cat out/_head.html > out/_head.tmp
-          echo '<title>Search</title>' >> out/_head.tmp
-          {
-            echo '<!doctype html><html lang="vi"><head>'
-            cat out/_head.tmp
-            echo '</head><body>'
-            cat out/_nav.html
-            cat templates/search.body.html
-            cat out/_foot.html
-            echo '</body></html>'
-          } > out/search.html
-          rm -f out/_head.tmp
-
-          # flags cuối
-          touch out/.nojekyll
-          if [ "${USE_CUSTOM_DOMAIN}" = "true" ]; then echo "repo.ninh.us" > out/CNAME; fi
-
-          echo "==== OUT TREE ===="
-          ls -R out
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./out
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+    tbody.innerHTML = rows.join('');
+  }catch(e){
+    tbody.innerHTML = `<tr><td colspan="4"><em>Lỗi tải manifest: ${e.message}</em></td></tr>`;
+  }
+}
+loadIPA();
+</script>

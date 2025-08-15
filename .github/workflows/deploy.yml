@@ -1,4 +1,4 @@
-name: Deploy site to GitHub Pages (fixed manifest & search)
+name: Deploy site to GitHub Pages (fixed IPA + manifest)
 
 on:
   push:
@@ -49,52 +49,79 @@ jobs:
           cp templates/_nav.html  out/_nav.html
           cp templates/_foot.html out/_foot.html
 
-          # --- debs -> Packages(.gz)
+          # --- DEB -> Packages(.gz)
           if ls debs/*.deb >/dev/null 2>&1; then
             cp debs/*.deb out/repo/
           fi
           (cd out/repo && dpkg-scanpackages . /dev/null > Packages && gzip -fk Packages)
 
-          # --- IPA: copy + manifest + page
-          if [ -d ipa ]; then cp -R ipa/. out/ipa/; fi
+          # --- IPA: chỉ lấy file .ipa, tạo ipa/manifest.json & ipa/index.html
           mkdir -p out/ipa
-          ( cd out/ipa
-            if find . -type f -name '*.ipa' | grep -q .; then
-              find . -type f -name '*.ipa' -print0 | xargs -0 sha256sum > SHA256SUMS
-            else
-              : > SHA256SUMS
-            fi
-            { echo '{ "items": ['; first=1
-              while IFS= read -r -d '' f; do
-                size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
-                sum=$(grep "  $f$" SHA256SUMS | awk '{print $1}')
-                url="${f#./}"; file=$(basename "$f")
-                [ $first -eq 0 ] && printf ',\n'; first=0
-                printf '  { "file":%s,"size":%s,"sha256":%s,"url":%s }' \
-                  "$(jq -Rn --arg v "$file" '$v')" \
-                  "$size" \
-                  "$(jq -Rn --arg v "$sum"  '$v')" \
-                  "$(jq -Rn --arg v "$url"  '$v')"
-              done < <(find . -type f -name '*.ipa' -print0 | sort -z)
-              echo '] }'
-            } > manifest.json
+          if find ipa -type f -name '*.ipa' 2>/dev/null | grep -q . ; then
+            # copy giữ cấu trúc thư mục con, CHỈ .ipa
+            while IFS= read -r -d '' f; do
+              rel="${f#ipa/}"                 # strip 'ipa/'
+              dest="out/ipa/$rel"
+              mkdir -p "$(dirname "$dest")"
+              cp "$f" "$dest"
+            done < <(find ipa -type f -name '*.ipa' -print0)
 
-            # ipa/index.html
-            cat ../_head.html > ../_head.tmp
-            echo '<title>IPA Downloads · Ninh Repo</title>' >> ../_head.tmp
+            # SHA256 + manifest cho IPA
+            ( cd out/ipa
+              find . -type f -name '*.ipa' -print0 | xargs -0 sha256sum > SHA256SUMS
+              { echo '{ "items": ['; first=1
+                while IFS= read -r -d '' f; do
+                  size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
+                  sum=$(grep "  $f$" SHA256SUMS | awk '{print $1}')
+                  url="${f#./}"; file=$(basename "$f")
+                  [ $first -eq 0 ] && printf ',\n'; first=0
+                  printf '  { "file":%s,"size":%s,"sha256":%s,"url":%s }' \
+                    "$(jq -Rn --arg v "$file" '$v')" \
+                    "$size" \
+                    "$(jq -Rn --arg v "$sum"  '$v')" \
+                    "$(jq -Rn --arg v "$url"  '$v')"
+                done < <(find . -type f -name '*.ipa' -print0 | sort -z)
+                echo '] }'
+              } > manifest.json
+
+              # ipa/index.html dùng manifest RIÊNG
+              cat ../_head.html > ../_head.tmp
+              echo '<title>IPA Downloads · Ninh Repo</title>' >> ../_head.tmp
+              {
+                echo '<!doctype html><html lang="vi"><head>'
+                cat ../_head.tmp
+                echo '</head><body>'
+                cat ../_nav.html
+                # file này cần có script fetch("manifest.json")
+                cat ../../templates/ipa.body.html
+                cat ../_foot.html
+                echo '</body></html>'
+              } > index.html
+              rm -f ../_head.tmp
+            )
+          else
+            echo '{ "items": [] }' > out/ipa/manifest.json
+            # vẫn tạo ipa/index.html rỗng
+            cat out/_head.html > out/_head.tmp
+            echo '<title>IPA Downloads · Ninh Repo</title>' >> out/_head.tmp
             {
               echo '<!doctype html><html lang="vi"><head>'
-              cat ../_head.tmp
+              cat out/_head.tmp
               echo '</head><body>'
-              cat ../_nav.html
-              cat ../../templates/ipa.body.html
-              cat ../_foot.html
+              cat out/_nav.html
+              cat <<'HTML'
+<main class="container my-4">
+  <h1 class="h4">IPA Downloads</h1>
+  <p class="text-muted">Chưa có IPA.</p>
+</main>
+HTML
+              cat out/_foot.html
               echo '</body></html>'
-            } > index.html
-            rm -f ../_head.tmp
-          )
+            } > out/ipa/index.html
+            rm -f out/_head.tmp
+          fi
 
-          # --- Manifest tổng (DEB + IPA) — fixed with process substitution
+          # --- Manifest tổng (DEB + IPA) — giữ biến first đúng bằng process substitution
           ( cd out
             # checksum cho deb
             if find repo -maxdepth 1 -type f -name '*.deb' | grep -q .; then
@@ -109,7 +136,7 @@ jobs:
               echo '{ "items": ['
               first=1
 
-              # Append IPA (giữ biến first trong shell hiện tại)
+              # Append IPA từ ipa/manifest.json (RIÊNG)
               if [ -f ipa/manifest.json ]; then
                 while IFS= read -r it; do
                   file=$(jq -r '.file'   <<<"$it")
@@ -133,7 +160,6 @@ jobs:
                 path="repo/$rel"
                 [ -f "$path" ] || continue
 
-                # sha256 theo tên tương đối (escape ký tự đặc biệt)
                 sum=$( (cd repo && grep -E "  $(printf '%s' "$rel" | sed 's/[.[\*^$]/\\&/g')\$" SHA256SUMS | awk '{print $1}') )
 
                 [ $first -eq 0 ] && printf ',\n'
@@ -226,3 +252,4 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
