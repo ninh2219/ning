@@ -1,4 +1,4 @@
-name: Deploy site to GitHub Pages (templates)
+name: Deploy site to GitHub Pages (with Search)
 
 on:
   push:
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' để viết CNAME=repo.ninh.us
+  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' để ghi CNAME=repo.ninh.us
 
 jobs:
   build:
@@ -35,7 +35,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y dpkg-dev jq
 
-      - name: Build site into ./out
+      - name: Build site into ./out (templates + search)
         run: |
           set -euo pipefail
           rm -rf out && mkdir -p out/repo out/ipa
@@ -49,13 +49,13 @@ jobs:
           cp templates/_nav.html  out/_nav.html
           cp templates/_foot.html out/_foot.html
 
-          # debs -> Packages
+          # --- debs -> Packages(.gz)
           if ls debs/*.deb >/dev/null 2>&1; then
             cp debs/*.deb out/repo/
           fi
           (cd out/repo && dpkg-scanpackages . /dev/null > Packages && gzip -fk Packages)
 
-          # IPA
+          # --- IPA: copy + manifest + page
           if [ -d ipa ]; then cp -R ipa/. out/ipa/; fi
           mkdir -p out/ipa
           ( cd out/ipa
@@ -79,7 +79,7 @@ jobs:
               echo '] }'
             } > manifest.json
 
-            # ipa page
+            # ipa/index.html
             cat ../_head.html > ../_head.tmp
             echo '<title>IPA Downloads · Ninh Repo</title>' >> ../_head.tmp
             {
@@ -94,7 +94,7 @@ jobs:
             rm -f ../_head.tmp
           )
 
-          # Manifest tổng (deb + ipa)
+          # --- Manifest tổng (deb + ipa)
           ( cd out
             if find repo -maxdepth 1 -type f -name '*.deb' | grep -q .; then
               (cd repo && sha256sum *.deb > SHA256SUMS)
@@ -119,7 +119,7 @@ jobs:
                     "$(jq -Rn --arg v "$url"  '$v')"
                 done < <(cd ipa && find . -type f -name '*.ipa' -printf '%P\0' | sort -z)
               fi
-              # DEB
+              # DEB (đọc từ Packages)
               awk -v RS='' '{
                 pkg=""; ver=""; arch=""; file=""; size="";
                 n=split($0, a, /\n/);
@@ -146,7 +146,7 @@ jobs:
             } > manifest.json
           )
 
-          # index.html
+          # --- index.html
           cat out/_head.html > out/_head.tmp
           echo '<title>Ninh Repo</title>' >> out/_head.tmp
           {
@@ -160,7 +160,7 @@ jobs:
           } > out/index.html
           rm -f out/_head.tmp
 
-          # packages.html
+          # --- packages.html
           cat out/_head.html > out/_head.tmp
           echo '<title>Packages Viewer</title>' >> out/_head.tmp
           {
@@ -174,11 +174,26 @@ jobs:
           } > out/packages.html
           rm -f out/_head.tmp
 
+          # --- search.html  (THÊM MỚI)
+          cat out/_head.html > out/_head.tmp
+          echo '<title>Search</title>' >> out/_head.tmp
+          {
+            echo '<!doctype html><html lang="vi"><head>'
+            cat out/_head.tmp
+            echo '</head><body>'
+            cat out/_nav.html
+            cat templates/search.body.html
+            cat out/_foot.html
+            echo '</body></html>'
+          } > out/search.html
+          rm -f out/_head.tmp
+
           # flags cuối
           touch out/.nojekyll
           if [ "${USE_CUSTOM_DOMAIN}" = "true" ]; then echo "repo.ninh.us" > out/CNAME; fi
 
-          echo "==== OUT TREE ====" && ls -R out
+          echo "==== OUT TREE ===="
+          ls -R out
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
