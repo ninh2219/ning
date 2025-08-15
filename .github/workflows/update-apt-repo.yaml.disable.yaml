@@ -1,0 +1,70 @@
+name: Build and Deploy APT Repo
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev gpg apt-utils unzip
+
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.PRIVATE_KEY }}
+          passphrase: ${{ secrets.KEY_PASSPHRASE }}
+
+      - name: Create directory structure
+        run: mkdir -p public
+
+      - name: Copy essential files
+        run: |
+          if [ -d "debs" ]; then cp -r debs public/; fi
+          if [ -d "ipas" ]; then cp -r ipas public/; fi
+          if [ -f "style.css" ]; then cp style.css public/; fi
+          if [ -f "CydiaIcon.png" ]; then cp CydiaIcon.png public/; fi
+          echo "${{ secrets.PUBLIC_KEY }}" > public/KEY.gpg
+
+      - name: Build APT Repository
+        run: |
+          cd public
+          dpkg-scanpackages --multiversion debs /dev/null > Packages
+          gzip -c9 Packages > Packages.gz
+          cat <<EOF > apt.conf
+          APT::FTPArchive::Release {
+            Origin "Ninh Repo";
+            Label "Ninh Repo";
+            Suite "stable";
+            Version "1.0";
+            Codename "ios";
+            Architectures "iphoneos-arm";
+            Components "main";
+            Description "A repository for Ninh's packages.";
+          };
+          EOF
+          apt-ftparchive -c apt.conf release . > Release
+          gpg --clearsign -u "${{ steps.import_gpg.outputs.email }}" -o InRelease Release
+          gpg -abs -u "${{ steps.import_gpg.outputs.email }}" -o Release.gpg Release
+          cd ..
+      
+      - name: Generate index.html page
+        run: ./generate-index.sh
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
