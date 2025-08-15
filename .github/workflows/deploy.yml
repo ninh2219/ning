@@ -1,4 +1,4 @@
-name: Deploy site to GitHub Pages (stable)
+name: Deploy site to GitHub Pages (no-heredoc)
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
     paths:
       - 'debs/**'
       - 'ipa/**'
+      - 'templates/**'
       - 'style.css'
       - 'CydiaIcon.png'
       - '.github/workflows/*.yml'
@@ -21,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' để viết CNAME=repo.ninh.us
+  USE_CUSTOM_DOMAIN: 'false'   # đổi 'true' khi muốn tạo CNAME=repo.ninh.us
 
 jobs:
   build:
@@ -34,84 +35,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y dpkg-dev jq
 
-      - name: Build site into ./out
+      - name: Build site into ./out (copy templates)
         run: |
           set -euo pipefail
-
           rm -rf out && mkdir -p out/repo out/ipa
 
-          # ---- assets (optional)
+          # assets
           [ -f style.css ] && cp style.css out/ || true
           [ -f CydiaIcon.png ] && cp CydiaIcon.png out/ || true
 
-          # ---- debs -> repo + Packages
+          # === copy templates
+          cp templates/_head.html out/_head.html
+          cp templates/_nav.html  out/_nav.html
+          cp templates/_foot.html out/_foot.html
+
+          # === debs -> Packages
           if ls debs/*.deb >/dev/null 2>&1; then
             cp debs/*.deb out/repo/
           fi
           (cd out/repo && dpkg-scanpackages . /dev/null > Packages && gzip -fk Packages)
 
-          # ---- IPA (giữ cấu trúc)
-          if [ -d ipa ]; then
-            cp -R ipa/. out/ipa/
-          fi
-
-          # ---- shared HEAD (base động), NAV, FOOT
-          cat > out/_head.html <<'HTML'
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <script>
-          (function(){
-            // github.io là project pages -> base = '/ning/', còn lại base = '/'
-            var base = location.hostname.endsWith('github.io') ? '/ning/' : '/';
-            document.write('<base href="'+base+'">');
-          })();
-          </script>
-          <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-          HTML
-
-          cat > out/_nav.html <<'HTML'
-          <nav class="navbar navbar-expand-lg bg-dark navbar-dark">
-            <div class="container">
-              <a class="navbar-brand" href="./">Ninh Repo</a>
-              <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
-                <span class="navbar-toggler-icon"></span>
-              </button>
-              <div id="nav" class="collapse navbar-collapse">
-                <ul class="navbar-nav ms-auto">
-                  <li class="nav-item"><a class="nav-link" href="packages.html">Tweaks (viewer)</a></li>
-                  <li class="nav-item"><a class="nav-link" href="repo/Packages">/repo/Packages</a></li>
-                  <li class="nav-item"><a class="nav-link" href="ipa/">IPA</a></li>
-                  <li class="nav-item"><a class="nav-link" href="search.html">Search</a></li>
-                  <li class="nav-item"><a class="nav-link" href="manifest.json">Manifest tổng</a></li>
-                </ul>
-              </div>
-            </div>
-          </nav>
-          HTML
-
-          cat > out/_foot.html <<'HTML'
-          <footer class="py-4 bg-dark text-white-50 mt-5">
-            <div class="container text-center small">© 2025 Ninh Repo</div>
-          </footer>
-          <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-          <script>(function(){
-            const here = new URL(location.href).pathname.replace(/\/+$/,'');
-            document.querySelectorAll('.navbar .nav-link').forEach(a=>{
-              const href = new URL(a.getAttribute('href'), location).pathname.replace(/\/+$/,'');
-              if (here===href) a.classList.add('active');
-            });
-          })();</script>
-          HTML
-
-          # ---- ipa/manifest.json + ipa/index.html
-          (
-            cd out/ipa
+          # === IPA: copy, checksum, manifest, page
+          if [ -d ipa ]; then cp -R ipa/. out/ipa/; fi
+          mkdir -p out/ipa
+          ( cd out/ipa
             if find . -type f -name '*.ipa' | grep -q .; then
               find . -type f -name '*.ipa' -print0 | xargs -0 sha256sum > SHA256SUMS
             else
               : > SHA256SUMS
             fi
-
             { echo '{ "items": ['; first=1
               while IFS= read -r -d '' f; do
                 size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
@@ -121,18 +73,13 @@ jobs:
                 printf '  { "file":%s,"size":%s,"sha256":%s,"url":%s }' \
                   "$(jq -Rn --arg v "$file" '$v')" \
                   "$size" \
-                  "$(jq -Rn --arg v "$sum" '$v')" \
-                  "$(jq -Rn --arg v "$url" '$v')"
+                  "$(jq -Rn --arg v "$sum"  '$v')" \
+                  "$(jq -Rn --arg v "$url"  '$v')"
               done < <(find . -type f -name '*.ipa' -print0 | sort -z)
               echo '] }'
             } > manifest.json
 
-            cat > index.html <<'HTML'
-            <!doctype html><html lang="vi"><head>
-            <!--#head-->
-            <title>IPA Downloads · Ninh Repo</title>
-            </head><body>
-            <!--#nav-->
+            cat > index.body <<'HTML'
             <main class="container my-4">
               <h1 class="h4">IPA Downloads</h1>
               <p class="text-muted">Danh sách .ipa — <a href="manifest.json">manifest.json</a></p>
@@ -154,24 +101,24 @@ jobs:
                   tbody.appendChild(tr);
                 }
               }catch(e){ document.getElementById('tbody').innerHTML='<tr><td colspan="4"><em>Lỗi tải manifest.</em></td></tr>'; }
-            }
-            main();
+            } main();
             </script>
-            <!--#foot-->
-            </body></html>
             HTML
-
-            awk -v h="../_head.html" -v n="../_nav.html" -v f="../_foot.html" '
-              /<!--#head-->/ { system("cat " h); next }
-              /<!--#nav-->/  { system("cat " n); next }
-              /<!--#foot-->/ { system("cat " f); next }
-              { print }
-            ' index.html > index.tmp && mv index.tmp index.html
+            # wrap với head/nav/foot
+            {
+              echo '<!doctype html><html lang="vi"><head>'
+              cat ../_head.html
+              echo '<title>IPA Downloads · Ninh Repo</title></head><body>'
+              cat ../_nav.html
+              cat index.body
+              cat ../_foot.html
+              echo '</body></html>'
+            } > index.html
+            rm -f index.body
           )
 
-          # ---- manifest tổng (deb + ipa)
-          (
-            cd out
+          # === Manifest tổng (deb + ipa)
+          ( cd out
             if find repo -maxdepth 1 -type f -name '*.deb' | grep -q .; then
               (cd repo && sha256sum *.deb > SHA256SUMS)
             else
@@ -179,8 +126,7 @@ jobs:
             fi
 
             PACK=repo/Packages; touch "$PACK"
-            {
-              echo '{ "items": ['; first=1
+            { echo '{ "items": ['; first=1
               # IPA
               if [ -d ipa ]; then
                 while IFS= read -r -d '' f; do
@@ -193,11 +139,11 @@ jobs:
                     "$(jq -Rn --arg v "$catg" '$v')" \
                     "$(jq -Rn --arg v "$file" '$v')" \
                     "$size" \
-                    "$(jq -Rn --arg v "$sum" '$v')" \
-                    "$(jq -Rn --arg v "$url" '$v')"
+                    "$(jq -Rn --arg v "$sum"  '$v')" \
+                    "$(jq -Rn --arg v "$url"  '$v')"
                 done < <(cd ipa && find . -type f -name '*.ipa' -printf '%P\0' | sort -z)
               fi
-              # DEB (đọc từ Packages)
+              # DEB (từ Packages)
               awk -v RS='' '{
                 pkg=""; ver=""; arch=""; file=""; size="";
                 n=split($0, a, /\n/);
@@ -216,7 +162,7 @@ jobs:
                   "$(jq -Rn --arg v "$ver" '$v')" \
                   "$(jq -Rn --arg v "$arch" '$v')" \
                   "$size" \
-                  "$(jq -Rn --arg v "$sum" '$v')" \
+                  "$(jq -Rn --arg v "$sum"  '$v')" \
                   "$(jq -Rn --arg v "$file" '$v')" \
                   "$(jq -Rn --arg v "$(basename "$file")" '$v')"
               done
@@ -224,13 +170,8 @@ jobs:
             } > manifest.json
           )
 
-          # ---- index.html
-          cat > out/index.html <<'HTML'
-          <!doctype html><html lang="vi"><head>
-          <!--#head-->
-          <title>Ninh Repo</title>
-          </head><body>
-          <!--#nav-->
+          # === index.html
+          cat > out/index.body <<'HTML'
           <header class="py-5 bg-light border-bottom">
             <div class="container">
               <h1 class="display-6 fw-bold">Kho APT Repo của Ninh</h1>
@@ -253,25 +194,21 @@ jobs:
               </div></div></div>
             </div>
           </main>
-          <!--#foot-->
-          </body></html>
           HTML
 
-          # ---- chèn head/nav/foot cho index
-          awk -v h="out/_head.html" -v n="out/_nav.html" -v f="out/_foot.html" '
-            /<!--#head-->/ { system("cat " h); next }
-            /<!--#nav-->/  { system("cat " n); next }
-            /<!--#foot-->/ { system("cat " f); next }
-            { print }
-          ' out/index.html > out/index.tmp && mv out/index.tmp out/index.html
+          {
+            echo '<!doctype html><html lang="vi"><head>'
+            cat out/_head.html
+            echo '<title>Ninh Repo</title></head><body>'
+            cat out/_nav.html
+            cat out/index.body
+            cat out/_foot.html
+            echo '</body></html>'
+          } > out/index.html
+          rm -f out/index.body
 
-          # ---- packages.html (viewer)
-          cat > out/packages.html <<'HTML'
-          <!doctype html><html lang="vi"><head>
-          <!--#head-->
-          <title>Packages Viewer</title>
-          </head><body>
-          <!--#nav-->
+          # === packages.html (viewer)
+          cat > out/packages.body <<'HTML'
           <main class="container my-4">
             <h1 class="h4 mb-3">Packages</h1>
             <div id="status" class="mb-3 text-muted">Đang tải…</div>
@@ -303,23 +240,24 @@ jobs:
           }
           loadPackages();
           </script>
-          <!--#foot-->
-          </body></html>
           HTML
 
-          awk -v h="out/_head.html" -v n="out/_nav.html" -v f="out/_foot.html" '
-            /<!--#head-->/ { system("cat " h); next }
-            /<!--#nav-->/  { system("cat " n); next }
-            /<!--#foot-->/ { system("cat " f); next }
-            { print }
-          ' out/packages.html > out/packages.tmp && mv out/packages.tmp out/packages.html
+          {
+            echo '<!doctype html><html lang="vi"><head>'
+            cat out/_head.html
+            echo '<title>Packages Viewer</title></head><body>'
+            cat out/_nav.html
+            cat out/packages.body
+            cat out/_foot.html
+            echo '</body></html>'
+          } > out/packages.html
+          rm -f out/packages.body
 
-          # ---- flags cuối
+          # === flags cuối
           touch out/.nojekyll
           if [ "${USE_CUSTOM_DOMAIN}" = "true" ]; then echo "repo.ninh.us" > out/CNAME; fi
 
-          echo "==== OUT TREE ===="
-          ls -R out
+          echo "==== OUT TREE ====" && ls -R out
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
@@ -335,4 +273,3 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-
