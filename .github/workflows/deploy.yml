@@ -1,4 +1,4 @@
-name: Deploy site to GitHub Pages (fixed IPA + manifest)
+name: Deploy site to GitHub Pages (no heredoc, fixed IPA & manifest)
 
 on:
   push:
@@ -38,43 +38,49 @@ jobs:
       - name: Build site into ./out
         run: |
           set -euo pipefail
+
           rm -rf out && mkdir -p out/repo out/ipa
 
-          # assets
-          [ -f style.css ] && cp style.css out/
-          [ -f CydiaIcon.png ] && cp CydiaIcon.png out/
+          # ---- assets
+          [ -f style.css ] && cp style.css out/ || true
+          [ -f CydiaIcon.png ] && cp CydiaIcon.png out/ || true
 
-          # templates -> out
+          # ---- templates -> out (phần head/nav/foot)
           cp templates/_head.html out/_head.html
           cp templates/_nav.html  out/_nav.html
           cp templates/_foot.html out/_foot.html
 
-          # --- DEB -> Packages(.gz)
+          # ---- DEB -> Packages(.gz)
           if ls debs/*.deb >/dev/null 2>&1; then
             cp debs/*.deb out/repo/
           fi
-          (cd out/repo && dpkg-scanpackages . /dev/null > Packages && gzip -fk Packages)
+          ( cd out/repo && dpkg-scanpackages . /dev/null > Packages && gzip -fk Packages )
 
-          # --- IPA: chỉ lấy file .ipa, tạo ipa/manifest.json & ipa/index.html
+          # ---- IPA: copy .ipa + SHA256 + ipa/manifest.json + ipa/index.html (không dùng heredoc)
           mkdir -p out/ipa
           if find ipa -type f -name '*.ipa' 2>/dev/null | grep -q . ; then
-            # copy giữ cấu trúc thư mục con, CHỈ .ipa
+            # copy giữ cấu trúc thư mục con, CHỈ file .ipa
             while IFS= read -r -d '' f; do
-              rel="${f#ipa/}"                 # strip 'ipa/'
+              rel="${f#ipa/}"
               dest="out/ipa/$rel"
               mkdir -p "$(dirname "$dest")"
               cp "$f" "$dest"
             done < <(find ipa -type f -name '*.ipa' -print0)
 
-            # SHA256 + manifest cho IPA
+            # Tạo SHA256SUMS & manifest.json cho IPA
             ( cd out/ipa
-              find . -type f -name '*.ipa' -print0 | xargs -0 sha256sum > SHA256SUMS
-              { echo '{ "items": ['; first=1
+              find . -type f -name '*.ipa' -print0 | xargs -0 sha256sum > SHA256SUMS || true
+
+              {
+                echo '{ "items": ['
+                first=1
                 while IFS= read -r -d '' f; do
                   size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
                   sum=$(grep "  $f$" SHA256SUMS | awk '{print $1}')
-                  url="${f#./}"; file=$(basename "$f")
-                  [ $first -eq 0 ] && printf ',\n'; first=0
+                  url="${f#./}"
+                  file=$(basename "$f")
+                  [ $first -eq 0 ] && printf ',\n'
+                  first=0
                   printf '  { "file":%s,"size":%s,"sha256":%s,"url":%s }' \
                     "$(jq -Rn --arg v "$file" '$v')" \
                     "$size" \
@@ -84,15 +90,15 @@ jobs:
                 echo '] }'
               } > manifest.json
 
-              # ipa/index.html dùng manifest RIÊNG
-              cat ../_head.html > ../_head.tmp
+              # /ipa/index.html (fetch "manifest.json")
+              cp ../_head.html ../_head.tmp
               echo '<title>IPA Downloads · Ninh Repo</title>' >> ../_head.tmp
               {
                 echo '<!doctype html><html lang="vi"><head>'
                 cat ../_head.tmp
                 echo '</head><body>'
                 cat ../_nav.html
-                # file này cần có script fetch("manifest.json")
+                # file body phải có script fetch("manifest.json")
                 cat ../../templates/ipa.body.html
                 cat ../_foot.html
                 echo '</body></html>'
@@ -100,28 +106,26 @@ jobs:
               rm -f ../_head.tmp
             )
           else
+            # manifest rỗng + trang trống
             echo '{ "items": [] }' > out/ipa/manifest.json
-            # vẫn tạo ipa/index.html rỗng
-            cat out/_head.html > out/_head.tmp
+            cp out/_head.html out/_head.tmp
             echo '<title>IPA Downloads · Ninh Repo</title>' >> out/_head.tmp
             {
               echo '<!doctype html><html lang="vi"><head>'
               cat out/_head.tmp
               echo '</head><body>'
               cat out/_nav.html
-              cat <<'HTML'
-<main class="container my-4">
-  <h1 class="h4">IPA Downloads</h1>
-  <p class="text-muted">Chưa có IPA.</p>
-</main>
-HTML
+              echo '<main class="container my-4">'
+              echo '  <h1 class="h4">IPA Downloads</h1>'
+              echo '  <p class="text-muted">Chưa có IPA.</p>'
+              echo '</main>'
               cat out/_foot.html
               echo '</body></html>'
             } > out/ipa/index.html
             rm -f out/_head.tmp
           fi
 
-          # --- Manifest tổng (DEB + IPA) — giữ biến first đúng bằng process substitution
+          # ---- Manifest tổng (DEB + IPA) — giữ biến first đúng (process substitution)
           ( cd out
             # checksum cho deb
             if find repo -maxdepth 1 -type f -name '*.deb' | grep -q .; then
@@ -136,7 +140,7 @@ HTML
               echo '{ "items": ['
               first=1
 
-              # Append IPA từ ipa/manifest.json (RIÊNG)
+              # Append IPA từ ipa/manifest.json
               if [ -f ipa/manifest.json ]; then
                 while IFS= read -r it; do
                   file=$(jq -r '.file'   <<<"$it")
@@ -156,7 +160,7 @@ HTML
 
               # Append DEB từ Packages (normalize ./ -> repo/)
               while IFS=$'\t' read -r _ pkg ver arch size file; do
-                rel="${file#./}"         # './foo.deb' -> 'foo.deb'
+                rel="${file#./}"
                 path="repo/$rel"
                 [ -f "$path" ] || continue
 
@@ -189,8 +193,8 @@ HTML
             } > manifest.json
           )
 
-          # --- index.html
-          cat out/_head.html > out/_head.tmp
+          # ---- index.html (ghép head/nav/foot + body từ templates)
+          cp out/_head.html out/_head.tmp
           echo '<title>Ninh Repo</title>' >> out/_head.tmp
           {
             echo '<!doctype html><html lang="vi"><head>'
@@ -203,8 +207,8 @@ HTML
           } > out/index.html
           rm -f out/_head.tmp
 
-          # --- packages.html
-          cat out/_head.html > out/_head.tmp
+          # ---- packages.html
+          cp out/_head.html out/_head.tmp
           echo '<title>Packages Viewer</title>' >> out/_head.tmp
           {
             echo '<!doctype html><html lang="vi"><head>'
@@ -217,8 +221,8 @@ HTML
           } > out/packages.html
           rm -f out/_head.tmp
 
-          # --- search.html
-          cat out/_head.html > out/_head.tmp
+          # ---- search.html
+          cp out/_head.html out/_head.tmp
           echo '<title>Search</title>' >> out/_head.tmp
           {
             echo '<!doctype html><html lang="vi"><head>'
@@ -231,7 +235,7 @@ HTML
           } > out/search.html
           rm -f out/_head.tmp
 
-          # flags cuối
+          # ---- flags cuối
           touch out/.nojekyll
           if [ "${USE_CUSTOM_DOMAIN}" = "true" ]; then echo "repo.ninh.us" > out/CNAME; fi
 
@@ -252,4 +256,3 @@ HTML
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-
