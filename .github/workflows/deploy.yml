@@ -33,7 +33,7 @@ jobs:
 
       - name: Prepare build dir
         run: |
-          rm -rf out && mkdir -p out/repo out/ipa
+          rm -rf out && mkdir -p out/repo
           [ -f style.css ] && cp style.css out/ || true
           [ -f CydiaIcon.png ] && cp CydiaIcon.png out/ || true
           # copy debs
@@ -43,10 +43,11 @@ jobs:
             echo "INFO: no debs"
           fi
           # copy ipa (giữ cấu trúc con nếu có)
-          if ls ipa/*.ipa >/dev/null 2>&1 || ls ipa/*/*.ipa >/dev/null 2>&1; then
-            rsync -a --include="*/" --include="*.ipa" --exclude="*" ipa/ out/ipa/
+          if [ -d ipa ]; then
+            mkdir -p out/ipa
+            cp -R ipa/. out/ipa/
           else
-            echo "INFO: no ipa"
+            echo "INFO: no ipa dir"
           fi
 
       - name: Install tools
@@ -66,14 +67,11 @@ jobs:
         run: |
           set -e
           cd out/ipa
-          # checksums
           if find . -type f -name '*.ipa' | grep -q .; then
             find . -type f -name '*.ipa' -print0 | xargs -0 sha256sum > SHA256SUMS
           else
             : > SHA256SUMS
           fi
-
-          # manifest IPA
           cat > manifest.json <<'JSON'
           { "items": [
           JSON
@@ -93,7 +91,6 @@ jobs:
           done < <(find . -type f -name '*.ipa' -print0 | sort -z)
           echo "] }" >> manifest.json
 
-          # trang index cho IPA
           cat > index.html <<'HTML'
           <!doctype html>
           <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -139,22 +136,17 @@ jobs:
         run: |
           set -e
           cd out
-          # sha256 cho debs
           if find repo -maxdepth 1 -type f -name '*.deb' | grep -q .; then
             (cd repo && sha256sum *.deb > SHA256SUMS)
           else
             : > repo/SHA256SUMS || true
           fi
-
           PACK=repo/Packages
           touch "$PACK"
-
           cat > manifest.json <<'JSON'
           { "items": [
           JSON
           first=1
-
-          # add IPA
           if [ -d ipa ]; then
             while IFS= read -r -d '' f; do
               size=$(stat -c%s "ipa/$f" 2>/dev/null || stat -f%z "ipa/$f")
@@ -172,8 +164,6 @@ jobs:
                 "$(jq -Rn --arg v "$url" '$v')" >> manifest.json
             done < <(cd ipa && find . -type f -name '*.ipa' -printf '%P\0' | sort -z)
           fi
-
-          # add DEB từ Packages
           awk -v RS='' '{
             pkg=""; ver=""; arch=""; file=""; size="";
             n=split($0, a, /\n/);
@@ -202,10 +192,9 @@ jobs:
               "$(jq -Rn --arg v "$file" '$v')" \
               "$(jq -Rn --arg v "$(basename "$file")" '$v')" >> manifest.json
           done
-
           echo "] }" >> manifest.json
 
-      - name: Generate index.html (Bootstrap) with links
+      - name: Generate index.html
         run: |
           cat > out/index.html <<'HTML'
           <!doctype html>
@@ -238,20 +227,8 @@ jobs:
               <div class="container">
                 <h1 class="display-6 fw-bold">Kho APT Repo của Ninh (GitHub Pages)</h1>
                 <p class="lead mb-4">Tuyển tập các deb, ipa dành cho hệ iOS cổ, mời anh em <code>vọc</code>.</p>
-                <div>
-                  <a class="btn btn-primary btn-lg me-2" href="packages.html">Xem Packages</a>
-                  <a class="btn btn-success btn-lg me-2" href="ipa/">Xem IPA</a>
-                  <a class="btn btn-outline-secondary btn-lg" href="repo/Packages">Tải Packages</a>
-                </div>
               </div>
             </header>
-            <main class="container my-5">
-              <p>Manifest: <a href="ipa/manifest.json">IPA</a> · <a href="manifest.json">Tổng (IPA + DEB)</a></p>
-            </main>
-            <footer class="py-4 bg-dark text-white-50">
-              <div class="container text-center small">© 2025 <a href="/">Ninh Repo</a></div>
-            </footer>
-            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
           </body>
           </html>
           HTML
@@ -259,7 +236,8 @@ jobs:
       - name: Add .nojekyll & debug tree
         run: |
           touch out/.nojekyll
-          echo "==== OUT TREE ====" && ls -R out
+          echo "==== OUT TREE ===="
+          ls -R out
 
       - name: Upload artifact to Pages
         uses: actions/upload-pages-artifact@v3
