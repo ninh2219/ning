@@ -1,0 +1,35 @@
+<main class="container my-4">
+  <h1 class="h4 mb-3">Packages</h1>
+  <div id="status" class="mb-3 text-muted">Đang tải…</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped">
+      <thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Size</th><th>Description</th><th>File</th></tr></thead>
+      <tbody id="pkgBody"><tr><td colspan="6">Đang tải…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+<script>
+const PACKAGES_PATH='repo/Packages';
+async function loadPackages(){
+  const body=document.getElementById('pkgBody'); const status=document.getElementById('status');
+  try{
+    const text=await (await fetch(PACKAGES_PATH,{cache:'no-store'})).text();
+    status.textContent='OK';
+    const blocks=text.split(/\n\n+/).map(s=>s.trim()).filter(Boolean);
+    const rows=[];
+    for(const b of blocks){
+      const m={}; for(const line of b.split('\n')){ const i=line.indexOf(':'); if(i>0){ m[line.slice(0,i).trim()]=line.slice(i+1).trim(); } }
+      rows.push(`<tr>
+        <td>${m.Package||''}</td><td>${m.Version||''}</td><td>${m.Architecture||''}</td>
+        <td>${m.Size||''}</td><td>${m.Description||''}</td>
+        <td>${m.Filename ? `<a href="${m.Filename}">.deb</a>` : ''}</td></tr>`);
+    }
+    body.innerHTML=rows.join('')||'<tr><td colspan="6"><em>Chưa có gói.</em></td></tr>';
+  }catch(e){
+    status.textContent='Lỗi: '+e.message;
+    body.innerHTML='<tr><td colspan="6"><em>Không đọc được Packages.</em></td></tr>';
+  }
+}
+loadPackages();
+</script>
+
